@@ -47,7 +47,7 @@ It is recommended to use conda environment.
 ### Coding
 
 ```python
-import BIEEGConv as bieeg
+import TSGLEEGNet as tsgleeg
 # TODO: finish the doc
 ```
 
