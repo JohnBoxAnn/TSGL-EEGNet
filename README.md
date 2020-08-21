@@ -10,14 +10,14 @@ You need to do some pre-processing works before using it. Maybe you need MATLAB 
 
 ## Features
 
-# Framework for EEG
+### Framework for EEG
 
 - Cross Validation Framework
 - Grid Search Framework
 - Cropped Training with CV and GS
 - Visualization Framework
 
-# Implemented Models
+### Implemented Models
 
 - EEGNet [1](http://stacks.iop.org/1741-2552/15/i=5/a=056013)
 - TSGL-EEGNet
