@@ -19,11 +19,11 @@ You need to do some pre-processing works before using it. Maybe you need MATLAB 
 
 ### Implemented Models
 
-- EEGNet [1](http://stacks.iop.org/1741-2552/15/i=5/a=056013)
+- EEGNet [[1]](http://stacks.iop.org/1741-2552/15/i=5/a=056013)
 - TSGL-EEGNet
-- DeepConvNet [2](https://onlinelibrary.wiley.com/doi/full/10.1002/hbm.23730)
-- ShallowConvNet [2](https://onlinelibrary.wiley.com/doi/full/10.1002/hbm.23730)
-- Multi-branch 3D CNN [3](https://ieeexplore.ieee.org/document/8820089)
+- DeepConvNet [[2]](https://onlinelibrary.wiley.com/doi/full/10.1002/hbm.23730)
+- ShallowConvNet [[2]](https://onlinelibrary.wiley.com/doi/full/10.1002/hbm.23730)
+- Multi-branch 3D CNN [[3]](https://ieeexplore.ieee.org/document/8820089)
 - [FBCSP](https://github.com/TNTLFreiburg/fbcsp)
 
 ## Usage
