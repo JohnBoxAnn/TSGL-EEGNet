@@ -46,10 +46,10 @@ It is recommended to use conda environment.
 
 ### Coding
 
-    ```python
-    import BIEEGConv as bieeg
-    # TODO: finish the doc
-    ```
+```python
+import BIEEGConv as bieeg
+# TODO: finish the doc
+```
 
 # Paper Citation
 
