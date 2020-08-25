@@ -53,7 +53,7 @@ crossValidate(
     end=4,
     srate=srate,
     epochs=200,
-    patience=50)(4, F=16, D=10, Ns=20, FSLength=16)
+    patience=50)(4, F=16, D=10, Ns=20, FSLength=16, l1=2.5e-5, l21=2.5e-5, tl1=7.5e-6)
 
 # parameters = {
 #     'l1': {
