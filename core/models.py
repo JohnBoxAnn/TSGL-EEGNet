@@ -25,13 +25,13 @@ from tensorflow.python.keras.api._v2.keras.layers import Dense, \
                                            Reshape, \
                                            Add
 from tensorflow.python.keras.api._v2.keras.constraints import max_norm, \
-                                                min_max_norm, \
-                                                unit_norm
+                                                              min_max_norm, \
+                                                              unit_norm
 from tensorflow.python.keras.api._v2.keras import backend as K
 
 from core.regularizers import l_1, l_2, l1_l2, l2_1, tsc, sgl, tsgl
 from core.constraints import std_norm
-from core.layers import rawEEGAttention, graphEEGAttention
+from core.layers import rawEEGAttention
 
 K.set_image_data_format('channels_last')
 

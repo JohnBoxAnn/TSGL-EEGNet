@@ -6,7 +6,7 @@ import math
 import numpy as np
 
 from abc import ABCMeta, abstractmethod
-from core.utils import load_data, load_or_gen_filterbank_data, load_or_gen_interestingband_data, load_or_generate_images, highpassfilter, bandpassfilter
+from core.utils import load_data, highpassfilter, bandpassfilter
 
 
 class BaseGenerator(object, metaclass=ABCMeta):
@@ -31,36 +31,6 @@ class BaseGenerator(object, metaclass=ABCMeta):
     @abstractmethod
     def _load_data(self, filepath):
         pass
-
-
-class graphGenerator(BaseGenerator):
-    '''
-    Graph data Generator.
-    '''
-    def __init__(self,
-                 H=6,
-                 W=7,
-                 beg=0.,
-                 end=4.,
-                 srate=250,
-                 mode='raw',
-                 averageImages=1):
-        super().__init__(beg=beg, end=end, srate=srate)
-        self.H = H
-        self.W = W
-        self.mode = mode
-        self.averageImages = averageImages
-        self.name = 'graph'
-
-    def _load_data(self, filepath):
-        return load_or_generate_images(filepath,
-                                       beg=self.beg,
-                                       end=self.end,
-                                       srate=self.srate,
-                                       mode=self.mode,
-                                       averageImages=self.averageImages,
-                                       H=self.H,
-                                       W=self.W)
 
 
 class rawGenerator(BaseGenerator):
