@@ -1,6 +1,7 @@
 # -*- coding:utf-8 -*-
 
 import os
+import math as m
 import numpy as np
 import scipy.io as sio
 import scipy.signal as signal
@@ -110,44 +111,6 @@ def load_data(datafile, label=True):
         dataMat['s'] = dataMat['s'].swapaxes(0, 1)
         print('Data loading complete. Shape is %r' % (dataMat['s'].shape, ))
         return dataMat['s']  # [nTrials, nChannels, nSamples]
-
-
-def augment_EEG(data, stdmult, pca=False, nComponents=2):
-    '''
-    Augment data by adding normal noise to each feature.
-
-    Parameters
-    ----------
-    ```txt
-    data        : EEG feature data as a matrix (nSamples, nFeatures)
-    stdmult     : Multiplier for std of added noise
-    pca         : if True will perform PCA on data and add noise proportional to PCA components.
-    nComponents : Number of components to consider when using PCA.
-    ```
-    Returns
-    -------
-    ```txt
-    augData     : Augmented data as a matrix (nSamples, nFSeatures)
-    ```
-    '''
-    augData = np.zeros(data.shape)
-    if pca:
-        pca = PCA(nComponents=nComponents)
-        pca.fit(data)
-        components = pca.components_
-        variances = pca.explained_variance_ratio_
-        coeffs = np.random.normal(scale=stdmult,
-                                  size=pca.nComponents) * variances
-        for s, sample in enumerate(data):
-            augData[s, :] = sample + (components * coeffs.reshape(
-                (nComponents, -1))).sum(axis=0)
-    else:
-        # Add Gaussian noise with std determined by weighted std of each feature
-        for f, feat in enumerate(data.transpose()):
-            augData[:,
-                    f] = feat + np.random.normal(scale=stdmult * np.std(feat),
-                                                 size=feat.size)
-    return augData
 
 
 def filterbank(data, srate=250, start=4, stop=38, window=4, step=2):

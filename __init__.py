@@ -20,7 +20,8 @@ from .core import callbacks
 from .core import visualization
 from .core import constraints
 
-import BCIIV2a as example
+import train as example
+import test as example_test
 
 
 __name__ = 'TSGLEEGNet'

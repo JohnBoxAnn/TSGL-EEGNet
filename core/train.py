@@ -5,6 +5,7 @@ import gc
 import sys
 import math
 import copy
+import time
 import logging
 import itertools
 import numpy as np
@@ -33,7 +34,7 @@ def create_MB3DCNN(nClasses,
     if summary:
         model.summary()
         # export graph of the model
-        tf.keras.utils.plot_model(model, 'MB3DCNN.png', show_shapes=True)
+        # tf.keras.utils.plot_model(model, 'MB3DCNN.png', show_shapes=True)
     return model
 
 
@@ -64,7 +65,7 @@ def create_EEGNet(nClasses,
     if summary:
         model.summary()
         # export graph of the model
-        tf.keras.utils.plot_model(model, 'EEGNet.png', show_shapes=True)
+        # tf.keras.utils.plot_model(model, 'EEGNet.png', show_shapes=True)
     return model
 
 
@@ -103,7 +104,7 @@ def create_TSGLEEGNet(nClasses,
     if summary:
         model.summary()
         # export graph of the model
-        tf.keras.utils.plot_model(model, 'rawEEGConvNet.png', show_shapes=True)
+        # tf.keras.utils.plot_model(model, 'rawEEGConvNet.png', show_shapes=True)
     return model
 
 
@@ -203,6 +204,7 @@ class crossValidate(object):
                  built_fn,
                  dataGent,
                  splitMethod=StratifiedKFold,
+                 data_filepath=None,
                  beg=0.,
                  end=4.,
                  srate=250,
@@ -233,6 +235,7 @@ class crossValidate(object):
         self.end = end
         self.srate = srate
         self.splitMethod = splitMethod
+        self.data_filepath = data_filepath
         self.kFold = kFold
         self.shuffle = shuffle
         self.random_state = random_state
@@ -483,6 +486,7 @@ class crossValidate(object):
                   built_fn,
                   dataGent,
                   splitMethod=StratifiedKFold,
+                  data_filepath=None,
                   beg=0.,
                   end=4.,
                   srate=250,
@@ -492,12 +496,15 @@ class crossValidate(object):
                   subs: list = range(1, 10),
                   cropping=False,
                   winLength=None,
-                  step=1,
+                  cpt=None,
+                  step=25,
                   normalizing=True,
                   batch_size=10,
                   epochs=300,
                   patience=100,
                   verbose=2,
+                  preserve_initfile=False,
+                  reinit=True,
                   *args,
                   **kwargs):
         self.built_fn = built_fn
@@ -510,6 +517,7 @@ class crossValidate(object):
         self.end = end
         self.srate = srate
         self.splitMethod = splitMethod
+        self.data_filepath = data_filepath
         self.kFold = kFold
         self.shuffle = shuffle
         self.random_state = random_state
@@ -535,6 +543,42 @@ class crossValidate(object):
         self.built = False
         self._new_fold = True
         self._last_batch = False
+        
+        self._readed = False
+        self.X1 = None
+        self.Y1 = None
+        self.X2 = None
+        self.Y2 = None
+
+        if not os.path.exists('model'):
+            os.makedirs('model')
+        if not os.path.exists('result'):
+            os.makedirs('result')
+
+        # cropped training
+        if self.winLength:
+            if not isinstance(self.winLength, int):
+                raise TypeError('`winLength` must be passed as int.')
+            if self.winLength > (self.end - self.beg) * self.srate:
+                raise ValueError(
+                    '`winLength` must less than or equal (`end` - '
+                    '`beg`) * `srate`.')
+        if self.cpt and not self.winLength:
+            if (isinstance(self.cpt, float) or isinstance(self.cpt, int)):
+                if self.cpt <= self.end - self.beg:
+                    self.winLength = self.cpt * self.srate
+                else:
+                    raise ValueError(
+                        '`cpt` must less than or equal `end` - `beg`.')
+            else:
+                raise TypeError('`cpt` must be passed as int or float.')
+        if not self.winLength:
+            self.winLength = 2 * self.srate
+        if self.step:
+            if not isinstance(self.step, int):
+                raise TypeError('`step` must be passed as int.')
+        else:
+            self.step = 4
 
     @staticmethod
     def _normalize(data: dict):
@@ -585,13 +629,15 @@ class crossValidate(object):
         if not mode in meta:
             raise ValueError('`mode` must be one of \'train\' and \'test\'.')
         if mode == 'test':
-            filepath = os.path.join('data', '4s', 'Test',
-                                    'A0' + str(subject) + 'E.mat')
-            yield self.dataGent(filepath)
+            if not self.data_filepath:
+                self.data_filepath = os.path.join('data', '4s', 'Test',
+                                                  'A0' + str(subject) + 'E.mat')
+            yield self.dataGent(self.data_filepath)
         else:
-            filepath = os.path.join('data', '4s', 'Train',
-                                    'A0' + str(subject) + 'T.mat')
-            yield self.dataGent(filepath)
+            if not self.data_filepath:
+                self.data_filepath = os.path.join('data', '4s', 'Train',
+                                                  'A0' + str(subject) + 'T.mat')
+            yield self.dataGent(self.data_filepath)
 
     # TODO: should have generators to generate train, val and test
     #       (data, label) tuples, espacially cropped data.

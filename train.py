@@ -31,23 +31,29 @@ def time_format(secs):
     return days, hours, mins, secs
 
 
+datapath = os.path.join('data', '4s', 'Train', 'example_data.mat')
+
 start = timeit.default_timer()
-crossValidate(create_TSGLEEGNet,
-              rawGenerator,
-              StratifiedKFold,
-              kFold=3,
-              shuffle=True,
-              normalizing=True,
-              preserve_initfile=False,
-              reinit=True,
-              cropping=True,
-              winLength=2 * srate,
-              step=1,
-              beg=0,
-              end=4,
-              srate=srate,
-              epochs=200,
-              patience=50)(4, F=16, D=10, Ns=20, FSLength=1)
+# increase kFold, epochs and patience to get higher acc
+crossValidate(
+    create_TSGLEEGNet,
+    rawGenerator,
+    StratifiedKFold,  # AllTrain is usable
+    data_filepath=datapath,
+    kFold=3,
+    subs=[1],  # if uses data_filepath, sets subs=[1]
+    shuffle=True,
+    normalizing=True,
+    preserve_initfile=False,
+    reinit=True,
+    cropping=False,  # if needed, turn it on
+    winLength=2 * srate,
+    step=1,
+    beg=0,
+    end=4,
+    srate=srate,
+    epochs=200,
+    patience=50)(4, F=16, D=10, Ns=20, FSLength=16)
 
 # parameters = {
 #     'l1': {
@@ -85,12 +91,20 @@ crossValidate(create_TSGLEEGNet,
 #         '9': [2.5e-5]
 #     }
 # }
-# gridSearch(create_rawEEGConvNet,
+# OR
+# parameters = {
+#     'l1': list(range(1e-3,1e-5,10)),
+#     'l21': list(range(1e-3,1e-5,10)),
+#     'tl1': list(range(1e-3,1e-5,10))
+# }
+# OR mix them
+# gridSearch(create_TSGLEEGNet,
 #            parameters,
 #            rawGenerator,
 #            StratifiedKFold,
+#            data_filepath=datapath,
 #            kFold=10,
-#            subs=range(1, 10),
+#            subs=[1],
 #            shuffle=True,
 #            normalizing=True,
 #            preserve_initfile=False,

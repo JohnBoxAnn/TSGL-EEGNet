@@ -1,6 +1,5 @@
 # coding:utf-8
 import os
-import pywt
 import copy
 import numpy as np
 import tensorflow as tf
