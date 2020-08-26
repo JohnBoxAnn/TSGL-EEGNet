@@ -7,7 +7,7 @@ import tensorflow as tf
 import matplotlib.pyplot as plt
 
 from core.train import create_EEGNet, create_TSGLEEGNet, crossValidate, gridSearch
-from core.generators import rawGenerator, graphGenerator
+from core.generators import rawGenerator
 from core.splits import StratifiedKFold, AllTrain
 
 from tensorflow.python.keras.api._v2.keras import backend as K
@@ -31,7 +31,8 @@ def time_format(secs):
     return days, hours, mins, secs
 
 
-datapath = os.path.join('data', '4s', 'Train', 'example_data.mat')
+train_datapath = os.path.join('data', '4s', 'Train', 'example_data.mat')
+test_datapath = os.path.join('data', '4s', 'Test', 'example_data.mat')
 
 start = timeit.default_timer()
 # increase kFold, epochs and patience to get higher acc
@@ -39,21 +40,29 @@ crossValidate(
     create_TSGLEEGNet,
     rawGenerator,
     StratifiedKFold,  # AllTrain is usable
-    data_filepath=datapath,
-    kFold=3,
-    subs=[1],  # if uses data_filepath, sets subs=[1]
+    traindata_filepath=train_datapath,
+    testdata_filepath=test_datapath,
+    kFold=5,
+    subs=[1],  # if uses datapath, sets subs=[1]
     shuffle=True,
     normalizing=True,
     preserve_initfile=False,
     reinit=True,
-    cropping=False,  # if needed, turn it on
+    cropping=True,  # if needed, turn it on. cropping don't support AllTrain.
     winLength=2 * srate,
-    step=1,
+    step=25,
     beg=0,
     end=4,
     srate=srate,
     epochs=200,
-    patience=50)(4, F=16, D=10, Ns=20, FSLength=16, l1=2.5e-5, l21=2.5e-5, tl1=7.5e-6)
+    patience=50)(4,
+                 F=9,
+                 D=4,
+                 Ns=4,
+                 FSLength=16,
+                 l1=2.5e-5,
+                 l21=2.5e-5,
+                 tl1=7.5e-6)
 
 # parameters = {
 #     'l1': {

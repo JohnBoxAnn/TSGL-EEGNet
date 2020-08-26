@@ -204,7 +204,8 @@ class crossValidate(object):
                  built_fn,
                  dataGent,
                  splitMethod=StratifiedKFold,
-                 data_filepath=None,
+                 traindata_filepath=None,
+                 testdata_filepath=None,
                  beg=0.,
                  end=4.,
                  srate=250,
@@ -235,7 +236,8 @@ class crossValidate(object):
         self.end = end
         self.srate = srate
         self.splitMethod = splitMethod
-        self.data_filepath = data_filepath
+        self.traindata_filepath = traindata_filepath
+        self.testdata_filepath = testdata_filepath
         self.kFold = kFold
         self.shuffle = shuffle
         self.random_state = random_state
@@ -355,10 +357,6 @@ class crossValidate(object):
                         model = self.built_fn(*args,
                                               **kwargs,
                                               Samples=self.Samples)
-                        model_best = self.built_fn(*args,
-                                                   **kwargs,
-                                                   Samples=self.Samples,
-                                                   summary=False)
 
                     k += 1
                     filepath = os.path.join(
@@ -400,18 +398,36 @@ class crossValidate(object):
                                       data['x_val'], data['y_val']
                                   ]).history.items()))
 
+                # load the best model for cropped training or evaluating its accuracy
+                model.load_weights(filepath)
+
                 # tf.keras.models.Model.fit()
                 # tf.keras.models.Model.evaluate()
                 # tf.data.Dataset.from_generator()
 
                 if self._last_batch:  # the last batch for cropped training
                     self._last_batch = False
-                    # load the best model and evaluate its accuracy
-                    model_best.load_weights(filepath)
-                    loss, acc = model_best.evaluate(data['x_test'],
-                                                    data['y_test'],
-                                                    batch_size=self.batch_size,
-                                                    verbose=self.verbose)
+
+                    if self.cropping:
+                        Pred = []
+                        pred = []
+                        for cpd in self._cropping_data((data['x_test'], )):
+                            pd = model.predict(cpd, verbose=0)
+                            pd = np.argmax(pd, axis=1)
+                            Pred.append(pd == data['y_test'])
+                        Pred = np.array(Pred)
+                        for j in np.arange(Pred.shape[1]):
+                            if Pred[:, j].any():
+                                pred.append(1)
+                            else:
+                                pred.append(0)
+                        acc = np.mean(np.array(pred))
+                        print('acc: {:.2%}'.format(acc))
+                    else:
+                        loss, acc = model.evaluate(data['x_test'],
+                                                   data['y_test'],
+                                                   batch_size=self.batch_size,
+                                                   verbose=self.verbose)
 
                     # save the train history
                     filepath = filepath[:-3] + '.npy'
@@ -424,7 +440,7 @@ class crossValidate(object):
 
                     if self.reinit:
                         K.clear_session()
-                        del model, model_best
+                        del model
                         gc.collect()
 
                     accik.append(acc)
@@ -462,6 +478,8 @@ class crossValidate(object):
             'built_fn': self.built_fn,
             'dataGent': self.dataGent,
             'splitMethod': self.splitMethod,
+            'traindata_filepath': self.traindata_filepath,
+            'testdata_filepath': self.testdata_filepath,
             'beg': self.beg,
             'end': self.end,
             'srate': self.srate,
@@ -477,6 +495,8 @@ class crossValidate(object):
             'epochs': self.epochs,
             'patience': self.patience,
             'verbose': self.verbose,
+            'preserve_initfile': self.preserve_initfile,
+            'reinit': self.reinit,
             'args': self.args,
             'kwargs': self.kwargs
         }
@@ -486,7 +506,8 @@ class crossValidate(object):
                   built_fn,
                   dataGent,
                   splitMethod=StratifiedKFold,
-                  data_filepath=None,
+                  traindata_filepath=None,
+                  testdata_filepath=None,
                   beg=0.,
                   end=4.,
                   srate=250,
@@ -517,7 +538,8 @@ class crossValidate(object):
         self.end = end
         self.srate = srate
         self.splitMethod = splitMethod
-        self.data_filepath = data_filepath
+        self.traindata_filepath = traindata_filepath
+        self.testdata_filepath = testdata_filepath
         self.kFold = kFold
         self.shuffle = shuffle
         self.random_state = random_state
@@ -543,7 +565,7 @@ class crossValidate(object):
         self.built = False
         self._new_fold = True
         self._last_batch = False
-        
+
         self._readed = False
         self.X1 = None
         self.Y1 = None
@@ -629,15 +651,15 @@ class crossValidate(object):
         if not mode in meta:
             raise ValueError('`mode` must be one of \'train\' and \'test\'.')
         if mode == 'test':
-            if not self.data_filepath:
-                self.data_filepath = os.path.join('data', '4s', 'Test',
-                                                  'A0' + str(subject) + 'E.mat')
-            yield self.dataGent(self.data_filepath)
+            if not self.testdata_filepath:
+                self.testdata_filepath = os.path.join(
+                    'data', '4s', 'Test', 'A0' + str(subject) + 'E.mat')
+            yield self.dataGent(self.testdata_filepath)
         else:
-            if not self.data_filepath:
-                self.data_filepath = os.path.join('data', '4s', 'Train',
-                                                  'A0' + str(subject) + 'T.mat')
-            yield self.dataGent(self.data_filepath)
+            if not self.traindata_filepath:
+                self.traindata_filepath = os.path.join(
+                    'data', '4s', 'Train', 'A0' + str(subject) + 'T.mat')
+            yield self.dataGent(self.traindata_filepath)
 
     # TODO: should have generators to generate train, val and test
     #       (data, label) tuples, espacially cropped data.
@@ -721,6 +743,9 @@ class crossValidate(object):
         data        : dict, Includes train, val and test data.
         ```
         '''
+        if self.splitMethod.__name__ == 'AllTrain':
+            raise ValueError('Cropped training don\'t support AllTrain.')
+
         data = {
             'x_train': None,
             'y_train': None,
@@ -731,101 +756,49 @@ class crossValidate(object):
         }
         temp = copy.deepcopy(data)
         L = range(0, self.Samples + 1, self.step)
-        print('len(L): {0:d}'.format(len(L)))
+        L = len(L)
+        print('len(L): {0:d}'.format(L))
 
         if not self._readed:
             # for once
             for (self.X1, self.Y1) in self._read_data(subject=subject,
                                                       mode='test'):
-                data['x_test'] = self.X1
-                data['y_test'] = self.Y1
-                # TODO: test data should be a part of this
-                if data['x_test'].any():
-                    temp['x_test'] = []
-                    temp['y_test'] = []
-                    for i in L:
-                        temp['x_test'] += data[
-                            'x_test'][:, :, i:i + self.winLength, :].tolist()
-                        temp['y_test'] += data['y_test'].tolist()
-                    temp['x_test'] = np.array(temp['x_test'])
-                    temp['y_test'] = np.array(temp['y_test'])
-                    self.X1 = temp['x_test']
-                    self.Y1 = temp['y_test']
-                if self.splitMethod.__name__ == 'AllTrain':
-                    temp['x_val'] = temp['x_test']
-                    temp['y_val'] = temp['y_test']
+                pass
             for (self.X2, self.Y2) in self._read_data(subject=subject,
                                                       mode='train'):
                 self._readed = True
-            # for multiple times
-            for (x1, y1), (x2, y2) in self._spilt(self.X2, self.Y2):
-                temp['x_train'] = x1
-                temp['y_train'] = y1
-                if not self.splitMethod.__name__ == 'AllTrain':
-                    data['x_val'] = x2
-                    data['y_val'] = y2
-                    if data['x_val'].any():
-                        temp['x_val'] = []
-                        temp['y_val'] = []
-                        for i in L:
-                            temp['x_val'] += data[
-                                'x_val'][:, :,
-                                         i:i + self.winLength, :].tolist()
-                            temp['y_val'] += data['y_val'].tolist()
-                        temp['x_val'] = np.array(temp['x_val'])
-                        temp['y_val'] = np.array(temp['y_val'])
-                if self.normalizing:
-                    data = self._normalize(temp)
-                else:
-                    data['x_train'] = x1
 
-                # TODO: how to obtain train data better when using cropped training?
-                for i in L:
-                    if data['x_train'].any():
-                        temp['x_train'] = data['x_train'][:, :, i:i +
-                                                          self.winLength, :]
-                    if i == L[0]:
-                        self._new_fold = True
-                    if i == L[-1]:
-                        self._last_batch = True
-                    yield temp
-        else:
-            temp['x_test'] = self.X1
-            temp['y_test'] = self.Y1
-            if self.splitMethod.__name__ == 'AllTrain':
-                temp['x_val'] = temp['x_test']
-                temp['y_val'] = temp['y_test']
-            for (x1, y1), (x2, y2) in self._spilt(self.X2, self.Y2):
-                temp['x_train'] = x1
-                temp['y_train'] = y1
-                if not self.splitMethod.__name__ == 'AllTrain':
-                    data['x_val'] = x2
-                    data['y_val'] = y2
-                    if data['x_val'].any():
-                        temp['x_val'] = []
-                        temp['y_val'] = []
-                        for i in L:
-                            temp['x_val'] += data[
-                                'x_val'][:, :,
-                                         i:i + self.winLength, :].tolist()
-                            temp['y_val'] += data['y_val'].tolist()
-                        temp['x_val'] = np.array(temp['x_val'])
-                        temp['y_val'] = np.array(temp['y_val'])
-                if self.normalizing:
-                    data = self._normalize(temp)
-                else:
-                    data['x_train'] = x1
+        temp['x_test'] = self.X1
+        temp['y_test'] = self.Y1
+        for (x1, y1), (x2, y2) in self._spilt(self.X2, self.Y2):
+            temp['x_train'] = x1
+            temp['y_train'] = y1
+            temp['x_val'] = x2
+            temp['y_val'] = y2
 
-                # TODO: how to obtain train data better when using cropped training?
-                for i in L:
-                    if data['x_train'].any():
-                        temp['x_train'] = data['x_train'][:, :, i:i +
-                                                          self.winLength, :]
-                    if i == L[0]:
-                        self._new_fold = True
-                    if i == L[-1]:
-                        self._last_batch = True
-                    yield temp
+            if self.normalizing:
+                data = self._normalize(temp)
+            else:
+                data['x_train'] = x1
+                data['x_val'] = x2
+
+            i = 0
+            for (temp['x_train'], temp['x_val']) in self._cropping_data(
+                (data['x_train'], data['x_val'])):
+                i += 1
+                if i == 1:
+                    self._new_fold = True
+                if i == L:
+                    self._last_batch = True
+                yield temp
+
+    def _cropping_data(self, datas):
+        L = range(0, self.Samples + 1, self.step)
+        for i in L:
+            temp = ()
+            for data in datas:
+                temp += (data[:, :, i:i + self.winLength, :], )
+            yield temp
 
     def _spilt(self, X, y, groups=None):
         """
@@ -1103,19 +1076,11 @@ class gridSearch(crossValidate):
                     model = self.built_fn(*args,
                                           **kwargs,
                                           Samples=self.Samples)
-                    model_best = self.built_fn(*args,
-                                               **kwargs,
-                                               Samples=self.Samples,
-                                               summary=False)
                     model.save_weights(initfile)
                 else:
                     model = self.built_fn(*args,
                                           **kwargs,
                                           Samples=self.Samples)
-                    model_best = self.built_fn(*args,
-                                               **kwargs,
-                                               Samples=self.Samples,
-                                               summary=False)
                     model.load_weights(initfile)
 
             filename = ''
@@ -1135,10 +1100,6 @@ class gridSearch(crossValidate):
                         model = self.built_fn(*args,
                                               **kwargs,
                                               Samples=self.Samples)
-                        model_best = self.built_fn(*args,
-                                                   **kwargs,
-                                                   Samples=self.Samples,
-                                                   summary=False)
 
                     k += 1
                     filepath = os.path.join(
@@ -1168,14 +1129,32 @@ class gridSearch(crossValidate):
                                       data['x_val'], data['y_val']
                                   ]).history.items()))
 
+                # load the best model for cropped training or evaluating its accuracy
+                model.load_weights(filepath)
+                
                 if self._last_batch:  # the last batch for cropped training
                     self._last_batch = False
-                    # load the best model and evaluate its accuracy
-                    model_best.load_weights(filepath)
-                    loss, acc = model_best.evaluate(data['x_test'],
-                                                    data['y_test'],
-                                                    batch_size=self.batch_size,
-                                                    verbose=self.verbose)
+
+                    if self.cropping:
+                        Pred = []
+                        pred = []
+                        for cpd in self._cropping_data((data['x_test'], )):
+                            pd = model.predict(cpd, verbose=0)
+                            pd = np.argmax(pd, axis=1)
+                            Pred.append(pd == data['y_test'])
+                        Pred = np.array(Pred)
+                        for j in np.arange(Pred.shape[1]):
+                            if Pred[:, j].any():
+                                pred.append(1)
+                            else:
+                                pred.append(0)
+                        acc = np.mean(np.array(pred))
+                        print('acc: {:.2%}'.format(acc))
+                    else:
+                        loss, acc = model.evaluate(data['x_test'],
+                                                   data['y_test'],
+                                                   batch_size=self.batch_size,
+                                                   verbose=self.verbose)
 
                     # save the train history
                     npy_filepath = filepath[:-3] + '.npy'
@@ -1188,7 +1167,7 @@ class gridSearch(crossValidate):
 
                     if self.reinit:
                         K.clear_session()
-                        del model, model_best
+                        del model
                         gc.collect()
 
                     Acc.append(acc)
@@ -1197,7 +1176,7 @@ class gridSearch(crossValidate):
             del data
 
             K.clear_session()
-            del model, model_best
+            del model
             gc.collect()
 
             avg_acc = np.average(np.array(Acc))
