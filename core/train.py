@@ -409,19 +409,23 @@ class crossValidate(object):
                     self._last_batch = False
 
                     if self.cropping:
-                        Pred = []
-                        pred = []
+                        _Pred = []
+                        _var = []
                         for cpd in self._cropping_data((data['x_test'], )):
                             pd = model.predict(cpd, verbose=0)
-                            pd = np.argmax(pd, axis=1)
-                            Pred.append(pd == data['y_test'])
-                        Pred = np.array(Pred)
-                        for j in np.arange(Pred.shape[1]):
-                            if Pred[:, j].any():
-                                pred.append(1)
+                            _var.append(np.var(pd, axis=1))
+                            _Pred.append(
+                                np.argmax(pd, axis=1) == np.squeeze(
+                                    data['y_test']))
+                        _Pred = np.array(_Pred)
+                        _varj = np.argmax(np.array(_var), axis=1)
+                        Pred = []
+                        for i in np.arange(_Pred.shape[0]):
+                            if _Pred[i, _varj[i]]:
+                                Pred.append(1)
                             else:
-                                pred.append(0)
-                        acc = np.mean(np.array(pred))
+                                Pred.append(0)
+                        acc = np.mean(np.array(Pred))
                         print('acc: {:.2%}'.format(acc))
                     else:
                         loss, acc = model.evaluate(data['x_test'],
@@ -1131,7 +1135,7 @@ class gridSearch(crossValidate):
 
                 # load the best model for cropped training or evaluating its accuracy
                 model.load_weights(filepath)
-                
+
                 if self._last_batch:  # the last batch for cropped training
                     self._last_batch = False
 
