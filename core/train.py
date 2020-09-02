@@ -306,11 +306,6 @@ class crossValidate(object):
         initfile = os.path.join('.', 'CV_initweight.h5')
         name = 'Cross Validate'
         tm = time.localtime()
-        filepath = os.path.join(
-            'result',
-            'CV_{0:d}_{1:0>2d}_{2:0>2d}_{3:0>2d}_{4:0>2d}_{5:0>2d}_' \
-            '{6:s}.txt'.format(tm.tm_year, tm.tm_mon, tm.tm_mday, tm.tm_hour,
-                               tm.tm_min, tm.tm_sec, self.modelstr))
         dirname = (
             'CV_{0:d}_{1:0>2d}_{2:0>2d}_{3:0>2d}_{4:0>2d}_{5:0>2d}_{6:s}'.
             format(tm.tm_year, tm.tm_mon, tm.tm_mday, tm.tm_hour, tm.tm_min,
@@ -326,10 +321,6 @@ class crossValidate(object):
 
         if not self.reinit:
             model = self.built_fn(*args, **kwargs, Samples=self.Samples)
-            model_best = self.built_fn(*args,
-                                       **kwargs,
-                                       Samples=self.Samples,
-                                       summary=False)
             model.save_weights(initfile)
 
         earlystopping = EarlyStopping(monitor='val_loss',
@@ -410,18 +401,15 @@ class crossValidate(object):
 
                     if self.cropping:
                         _Pred = []
-                        _var = []
                         for cpd in self._cropping_data((data['x_test'], )):
                             pd = model.predict(cpd, verbose=0)
-                            _var.append(np.var(pd, axis=1))
                             _Pred.append(
                                 np.argmax(pd, axis=1) == np.squeeze(
                                     data['y_test']))
                         _Pred = np.array(_Pred)
-                        _varj = np.argmax(np.array(_var), axis=1)
                         Pred = []
-                        for i in np.arange(_Pred.shape[0]):
-                            if _Pred[i, _varj[i]]:
+                        for i in np.arange(_Pred.shape[1]):
+                            if _Pred[:, i].any():
                                 Pred.append(1)
                             else:
                                 Pred.append(0)
@@ -453,8 +441,11 @@ class crossValidate(object):
             del data
             self._readed = False
         total_avg_acc = np.average(np.array(avg_acc))
-        filepath = os.path.join('result', dirname,
-                                filename + '{:s}.txt'.format(self.modelstr))
+        filepath = os.path.join(
+            'result',
+            'CV_{0:d}_{1:0>2d}_{2:0>2d}_{3:0>2d}_{4:0>2d}_{5:0>2d}_' \
+            '{6:s}.txt'.format(tm.tm_year, tm.tm_mon, tm.tm_mday, tm.tm_hour,
+                               tm.tm_min, tm.tm_sec, self.modelstr))
         with open(filepath, 'w+') as f:
             sys.stdout = f
             print(('{0:s} {1:d}-fold ' + self.validation_name +
@@ -735,6 +726,8 @@ class crossValidate(object):
         '''
         Generate cropped (data, label) from dataGent.
 
+        Not including test data.
+
         Parameters
         ----------
         ```txt
@@ -747,10 +740,7 @@ class crossValidate(object):
         data        : dict, Includes train, val and test data.
         ```
         '''
-        if self.splitMethod.__name__ == 'AllTrain':
-            raise ValueError('Cropped training don\'t support AllTrain.')
-
-        data = {
+        temp = {
             'x_train': None,
             'y_train': None,
             'x_val': None,
@@ -758,7 +748,6 @@ class crossValidate(object):
             'x_test': None,
             'y_test': None
         }
-        temp = copy.deepcopy(data)
         L = range(0, self.Samples + 1, self.step)
         L = len(L)
         print('len(L): {0:d}'.format(L))
@@ -779,12 +768,24 @@ class crossValidate(object):
             temp['y_train'] = y1
             temp['x_val'] = x2
             temp['y_val'] = y2
-
-            if self.normalizing:
-                data = self._normalize(temp)
+            if temp['x_val'] is None:
+                if self.normalizing:
+                    data = self._normalize(temp)
+                    temp['x_val'] = data['x_test']
+                    temp['y_val'] = data['y_test']
+                    temp['x_test'] = data['x_test']
+                    temp['y_test'] = data['y_test']
+                else:
+                    data['x_train'] = x1
+                    data['x_val'] = temp['x_val']
             else:
-                data['x_train'] = x1
-                data['x_val'] = x2
+                if self.normalizing:
+                    data = self._normalize(temp)
+                    temp['x_test'] = data['x_test']
+                    temp['y_test'] = data['y_test']
+                else:
+                    data['x_train'] = x1
+                    data['x_val'] = x2
 
             i = 0
             for (temp['x_train'], temp['x_val']) in self._cropping_data(
@@ -1049,11 +1050,6 @@ class gridSearch(crossValidate):
         initfile = os.path.join('.', 'GSCV_initweight.h5')
         name = 'Cross Validate Grid Search'
         tm = time.localtime()
-        filepath = os.path.join(
-            'result',
-            'GS_{0:d}_{1:0>2d}_{2:0>2d}_{3:0>2d}_{4:0>2d}_{5:0>2d}_' \
-            '{6:s}.txt'.format(tm.tm_year, tm.tm_mon, tm.tm_mday, tm.tm_hour,
-                               tm.tm_min, tm.tm_sec, self.modelstr))
         dirname = (
             'GS_{0:d}_{1:0>2d}_{2:0>2d}_{3:0>2d}_{4:0>2d}_{5:0>2d}_{6:s}'.
             format(tm.tm_year, tm.tm_mon, tm.tm_mday, tm.tm_hour, tm.tm_min,
@@ -1140,19 +1136,20 @@ class gridSearch(crossValidate):
                     self._last_batch = False
 
                     if self.cropping:
-                        Pred = []
-                        pred = []
+                        _Pred = []
                         for cpd in self._cropping_data((data['x_test'], )):
                             pd = model.predict(cpd, verbose=0)
-                            pd = np.argmax(pd, axis=1)
-                            Pred.append(pd == data['y_test'])
-                        Pred = np.array(Pred)
-                        for j in np.arange(Pred.shape[1]):
-                            if Pred[:, j].any():
-                                pred.append(1)
+                            _Pred.append(
+                                np.argmax(pd, axis=1) == np.squeeze(
+                                    data['y_test']))
+                        _Pred = np.array(_Pred)
+                        Pred = []
+                        for i in np.arange(_Pred.shape[1]):
+                            if _Pred[:, i].any():
+                                Pred.append(1)
                             else:
-                                pred.append(0)
-                        acc = np.mean(np.array(pred))
+                                Pred.append(0)
+                        acc = np.mean(np.array(Pred))
                         print('acc: {:.2%}'.format(acc))
                     else:
                         loss, acc = model.evaluate(data['x_test'],
@@ -1252,6 +1249,11 @@ class gridSearch(crossValidate):
         if os.path.exists(initfile) and not self.preserve_initfile:
             os.remove(initfile)
 
+        filepath = os.path.join(
+            'result',
+            'GS_{0:d}_{1:0>2d}_{2:0>2d}_{3:0>2d}_{4:0>2d}_{5:0>2d}_' \
+            '{6:s}.txt'.format(tm.tm_year, tm.tm_mon, tm.tm_mday, tm.tm_hour,
+                               tm.tm_min, tm.tm_sec, self.modelstr))
         with open(filepath, 'w+') as f:
             sys.stdout = f
             print(('{0:s} {1:d}-fold ' + name + ' Accuracy').format(
@@ -1280,6 +1282,7 @@ class gridSearch(crossValidate):
             f.close()
         avg_acc = max_avg_acc
         avg_acc.append(np.average(max_avg_acc))
+
         return avg_acc
 
     def _combination(self, subject):

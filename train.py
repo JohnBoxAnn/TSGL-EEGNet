@@ -35,7 +35,7 @@ train_datapath = os.path.join('data', '4s', 'Train', 'example_data.mat')
 test_datapath = os.path.join('data', '4s', 'Test', 'example_data.mat')
 
 start = timeit.default_timer()
-# increase kFold, epochs and patience to get higher acc
+# Change kFold, epochs and patience to get higher acc
 crossValidate(
     create_TSGLEEGNet,
     rawGenerator,
@@ -43,12 +43,14 @@ crossValidate(
     traindata_filepath=train_datapath,
     testdata_filepath=test_datapath,
     kFold=5,
-    subs=[1],  # if uses datapath, sets subs=[1]
+    subs=[1],  # If uses datapath, sets subs=[1]
     shuffle=True,
     normalizing=True,
     preserve_initfile=False,
     reinit=True,
-    cropping=True,  # if needed, turn it on. cropping don't support AllTrain.
+    # If needed, turn cropping on.
+    # But its accuracy evaluation indicator is not clear.
+    cropping=True,
     winLength=2 * srate,
     step=25,
     beg=0,
