@@ -18,7 +18,6 @@ from core.utils import interestingband, normalization
 from core.utils import load_locs, azim_proj
 
 
-# TODO: cropped visualizing
 class visualize(object):
     '''
     Visualize Keras model from selected layers and data.
@@ -193,6 +192,12 @@ class visualize(object):
             plt.plot(np.arange(len(a)), a)
             plt.autoscale(enable=True, axis='both', tight=True)
             plt.tight_layout()
+            plt.margins(0, 0)
+            fig.savefig(os.path.join('fft_output.png'),
+                        format='png',
+                        transparent=False,
+                        dpi=300,
+                        pad_inches=0)
             plt.show(block=False)
 
     def output(self, layer_name):
@@ -202,7 +207,7 @@ class visualize(object):
             _output = self.layer_dict[name].output
             t = K.function(_input, _output)
             r = t(self.data['x'][0:1])  # ndarray
-            plt.figure()
+            fig = plt.figure()
             for i in range(_output.shape[-1]):
                 rci = np.squeeze(r[:, :, :, i], axis=0)
                 plt.subplot(_output.shape[-1], 1, i + 1)
@@ -210,6 +215,12 @@ class visualize(object):
                 plt.autoscale(enable=True, axis='both', tight=True)
                 plt.tight_layout()
             plt.tight_layout()
+            plt.margins(0, 0)
+            fig.savefig(os.path.join('output.png'),
+                        format='png',
+                        transparent=False,
+                        dpi=300,
+                        pad_inches=0)
             plt.show(block=False)
 
     def topo_kernel(self, layer_name):
@@ -263,6 +274,12 @@ class visualize(object):
                                 bottom=0,
                                 wspace=0,
                                 hspace=0)
+            plt.margins(0, 0)
+            fig.savefig(os.path.join('topo_kernel.png'),
+                        format='png',
+                        transparent=False,
+                        dpi=300,
+                        pad_inches=0)
             plt.show(block=False)
 
     def fft_kernel(self, layer_name):
@@ -274,11 +291,17 @@ class visualize(object):
             fred = np.abs(fft(rci.T))
             fred = fred / len(fred.T)
             fred = fred[:, :int((len(fred.T) / 2)) + 1]
-            plt.figure()
+            fig = plt.figure()
             plt.title('Weights in layer {} after FFT'.format(name))
             plt.plot(np.arange(len(fred.T)), fred.T)
             plt.autoscale(enable=True, axis='both', tight=True)
             plt.tight_layout()
+            plt.margins(0, 0)
+            fig.savefig(os.path.join('fft_kernel.png'),
+                        format='png',
+                        transparent=False,
+                        dpi=300,
+                        pad_inches=0)
             plt.show(block=False)
 
     def kernel(self, layer_name):
@@ -296,6 +319,12 @@ class visualize(object):
                                 bottom=0.07,
                                 wspace=0,
                                 hspace=0)
+            plt.margins(0, 0)
+            fig.savefig(os.path.join('kernel.png'),
+                        format='png',
+                        transparent=False,
+                        dpi=300,
+                        pad_inches=0)
             plt.show(block=False)
 
     def depthwise_kernel(self, layer_name):
@@ -316,6 +345,12 @@ class visualize(object):
                                 bottom=0.07,
                                 wspace=0,
                                 hspace=0)
+            plt.margins(0, 0)
+            fig.savefig(os.path.join('depthwise_kernel.png'),
+                        format='png',
+                        transparent=False,
+                        dpi=300,
+                        pad_inches=0)
             plt.show(block=False)
 
     # TODO: fs visualiztion
@@ -367,6 +402,12 @@ class visualize(object):
             plt.plot(np.arange(len(a)), a)
             plt.autoscale(enable=True, axis='both', tight=True)
             plt.tight_layout()
+            plt.margins(0, 0)
+            fig.savefig(os.path.join('fs_fft_output.png'),
+                        format='png',
+                        transparent=False,
+                        dpi=300,
+                        pad_inches=0)
             plt.show(block=False)
 
     # TODO: class visualization
@@ -398,6 +439,12 @@ class visualize(object):
                                 bottom=0.10,
                                 wspace=0.17,
                                 hspace=0.10)
+            plt.margins(0, 0)
+            fig.savefig(os.path.join('class_fft_output.png'),
+                        format='png',
+                        transparent=False,
+                        dpi=300,
+                        pad_inches=0)
             plt.show(block=False)
 
     def fs_class_topo_kernel(self, layer_name):
@@ -438,6 +485,12 @@ class visualize(object):
                                  extrapolate='head',
                                  sphere=(0, 0, 0, 1))  # draw topographic image
             plt.tight_layout(pad=0)
+            plt.margins(0, 0)
+            fig.savefig(os.path.join('fs_class_topo_kernel.png'),
+                        format='png',
+                        transparent=False,
+                        dpi=300,
+                        pad_inches=0)
             plt.show(block=False)
 
     def fs_class_fft_output(self, layer_name):
@@ -469,11 +522,17 @@ class visualize(object):
                                              axis='both',
                                              tight=True)
             plt.subplots_adjust(right=0.97,
-                                left=0.04,
+                                left=0.05,
                                 top=0.96,
                                 bottom=0.10,
                                 wspace=0.13,
                                 hspace=0.10)
+            plt.margins(0, 0)
+            fig.savefig(os.path.join('fs_class_fft_output.png'),
+                        format='png',
+                        transparent=False,
+                        dpi=300,
+                        pad_inches=0)
             plt.show(block=False)
 
     def fs_class_freq_topo_kernel(self, layer_name):
@@ -487,8 +546,7 @@ class visualize(object):
             layer = self.layer_dict[name]
             _weights = layer.get_weights()[0]
             layer_model = tf.keras.Model([_input], [layer.output, _output])
-            fig = plt.figure(figsize=(8,6))
-            plt.Axes.add_child_axes
+            fig = plt.figure(figsize=(8, 6))
             gs = fig.add_gridspec(2, 2)
             for c in class_data:
                 axs = fig.add_subplot(gs[c])
@@ -601,4 +659,9 @@ class visualize(object):
                 cbar = plt.colorbar(im, cax=cax, orientation='horizontal')
                 cbar.set_ticks([])
             plt.tight_layout(pad=0.25, h_pad=0, w_pad=1)
+            fig.savefig(os.path.join('fs_class_freq_topo_kernel.png'),
+                        format='png',
+                        transparent=False,
+                        dpi=300,
+                        pad_inches=0)
             plt.show(block=False)
