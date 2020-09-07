@@ -16,6 +16,7 @@ from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from core.generators import rawGenerator
 from core.utils import interestingband, normalization
 from core.utils import load_locs, azim_proj
+from core.train import crossValidate
 
 
 class visualize(object):
@@ -104,7 +105,9 @@ class visualize(object):
         plt.rcParams['font.family'] = 'Times New Roman'
 
     def _read_data(self, srate):
-        x, y = self.dataGent._load_data(self.data_file)
+        x = self.dataGent._load_data(self.data_file)
+        y = self.dataGent._load_label(self.data_file)
+        x = crossValidate._normalize({'x_test': x})['x_test']
         if self.cropping:
             return {
                 'x': x[:, :, 0.5 * srate:0.5 * srate + self.winLength, :],

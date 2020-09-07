@@ -599,7 +599,7 @@ class crossValidate(object):
 
     @staticmethod
     def _normalize(data: dict):
-        '''Normalizing on each trial, supports np.nan numbers'''
+        '''Normalizing (z-score) on each trial, supports np.nan numbers'''
         # suppose every trials are independent to each other
         meta = ['x_train', 'x_test', 'x_val']
         # for s in meta:
@@ -614,8 +614,8 @@ class crossValidate(object):
         for s in meta:
             if s in data and not data[s] is None:
                 temp = copy.deepcopy(data[s])
-                # normalizing on trials
-                for k in range(temp.shape[0]):
+                # z-score on trials
+                for k in np.arange(temp.shape[0]):
                     mu = np.nanmean(temp[k])
                     std = np.nanstd(temp[k])
                     temp[k] = (temp[k] - mu) / std
