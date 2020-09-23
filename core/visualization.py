@@ -107,7 +107,7 @@ class visualize(object):
     def _read_data(self, srate):
         x = self.dataGent._load_data(self.data_file)
         y = self.dataGent._load_label(self.data_file)
-        x = crossValidate._normalize({'x_test': x})['x_test']
+        x = crossValidate._standardize({'x_test': x})['x_test']
         if self.cropping:
             return {
                 'x': x[:, :, 0.5 * srate:0.5 * srate + self.winLength, :],
@@ -375,7 +375,7 @@ class visualize(object):
                 index = np.argmax(Pred[0])
                 prob = Pred[:, index]
                 grads = g.gradient(prob, conv_output)
-                pooled_grads = K.mean(grads, axis=(0, 1, 2))
+                pooled_grads = K.sum(grads, axis=(0, 1, 2))
             selected = tf.reduce_mean(tf.multiply(pooled_grads, conv_output),
                                       axis=0)
             for i in np.arange(selected.shape[-1]):
@@ -468,7 +468,7 @@ class visualize(object):
                         class_data[c]['x'])
                     prob = Pred[:, c]
                     grads = g.gradient(prob, conv_output)
-                    pooled_grads = K.mean(grads, axis=(0, 1, 2))
+                    pooled_grads = K.sum(grads, axis=(0, 1, 2))
                     pooled_grads = tf.reshape(pooled_grads,
                                               shape=(_weights.shape[-2],
                                                      _weights.shape[-1]))
@@ -505,13 +505,13 @@ class visualize(object):
         for name in layer_name:
             layer = self.layer_dict[name]
             layer_model = tf.keras.Model([_input], [layer.output, _output])
-            fig, axs = plt.subplots(2, 2, sharex=True)
+            fig, axs = plt.subplots(2, 2, sharex=True, sharey=True)
             for c in class_data:
                 with tf.GradientTape() as g:
                     conv_output, Pred = layer_model(class_data[c]['x'])
                     prob = Pred[:, c]
                     grads = g.gradient(prob, conv_output)
-                    pooled_grads = K.mean(grads, axis=(0, 1, 2))
+                    pooled_grads = K.sum(grads, axis=(0, 1, 2))
                 selected = tf.multiply(pooled_grads, conv_output)
                 fred = np.average(np.abs(fft(np.array(selected), axis=2)),
                                   axis=(0, 1, -1))
@@ -543,13 +543,13 @@ class visualize(object):
         class_data = self._class_data(self.data)
         _input = self.model.input
         _output = self.model.output
-        ib = ['2-8', '8-12', '12-20', '20-30', '30-60']
+        ib = ['2-8', '8-12', '12-20', '20-30', '30-60', '80-100']
         plt.rcParams['font.size'] = 12
         for name in layer_name:
             layer = self.layer_dict[name]
             _weights = layer.get_weights()[0]
             layer_model = tf.keras.Model([_input], [layer.output, _output])
-            fig = plt.figure(figsize=(8, 6))
+            fig = plt.figure(figsize=(12, 6))
             gs = fig.add_gridspec(2, 2)
             for c in class_data:
                 axs = fig.add_subplot(gs[c])
@@ -599,6 +599,7 @@ class visualize(object):
                 ax.set_xlabel('({}) {}'.format(chr(c + 97),
                                                self.class_names[c]))
                 ibclass_data = interestingband(class_data[c]['x'],
+                                               ib,
                                                axis=-2,
                                                swapaxes=False)
                 cax_text.text(0.5,
@@ -630,7 +631,7 @@ class visualize(object):
                         conv_output, Pred = layer_model(ibclass_data[i])
                         prob = Pred[:, c]
                         grads = g.gradient(prob, conv_output)
-                    pooled_grads = K.mean(grads, axis=(0, 1, 2))
+                    pooled_grads = K.sum(grads, axis=(0, 1, 2))
                     pooled_grads = tf.reshape(pooled_grads,
                                               shape=(_weights.shape[-2],
                                                      _weights.shape[-1]))

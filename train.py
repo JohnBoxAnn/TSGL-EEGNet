@@ -45,7 +45,7 @@ crossValidate(
     kFold=5,
     subs=[1],  # If uses datapath, sets subs=[1]
     shuffle=True,
-    normalizing=True,
+    standardizing=True,
     preserve_initfile=False,
     reinit=True,
     # If needed, turn cropping on.
@@ -113,19 +113,20 @@ crossValidate(
 #            parameters,
 #            rawGenerator,
 #            StratifiedKFold,
-#            data_filepath=datapath,
+#            traindata_filepath=train_datapath,
+#            testdata_filepath=test_datapath,
 #            kFold=10,
 #            subs=[1],
 #            shuffle=True,
 #            normalizing=True,
 #            preserve_initfile=False,
 #            reinit=True,
-#            cropping=True,
+#            cropping=False,
 #            beg=0,
 #            end=4,
 #            srate=srate,
-#            epochs=10, # change them
-#            patience=3)(4, F=16, D=10, Ns=20)
+#            epochs=200, # change them
+#            patience=50)(4, F=16, D=10, Ns=20)
 
 end = timeit.default_timer()
 print("Time used: {0:0>2d}d {1:0>2d}h {2:0>2d}m {3:.4f}s".format(

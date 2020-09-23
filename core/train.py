@@ -16,6 +16,7 @@ from tensorflow.python.keras.api._v2.keras import backend as K
 from core.models import EEGNet, TSGLEEGNet, ShallowConvNet, DeepConvNet, MB3DCNN
 from core.splits import StratifiedKFold
 from core.callbacks import MyModelCheckpoint, EarlyStopping
+from core.utils import standardization, computeKappa
 
 _console = sys.stdout
 
@@ -144,7 +145,7 @@ class crossValidate(object):
     cpt             : float, cropping sencond, optional, only available when `winLength`
                       is not specified.
     step            : int, cropping step, default = 4.
-    normalizing     : bool, Switch of normalizing data. Default = True.
+    standardizing   : bool, Switch of standardizing data. Default = True.
     batch_size      : int, Batch size.
     epochs          : int, Training epochs.
     patience        : int, Early stopping patience.
@@ -217,7 +218,7 @@ class crossValidate(object):
                  winLength=None,
                  cpt=None,
                  step=25,
-                 normalizing=True,
+                 standardizing=True,
                  batch_size=10,
                  epochs=300,
                  patience=100,
@@ -246,7 +247,7 @@ class crossValidate(object):
         self.winLength = winLength
         self.cpt = cpt
         self.step = step
-        self.normalizing = normalizing
+        self.standardizing = standardizing
         self.batch_size = batch_size
         self.epochs = epochs
         self.patience = patience
@@ -336,9 +337,11 @@ class crossValidate(object):
             else:
                 filename += '{0:s}({1:0>2d})_'.format(key, kwargs[key])
 
-        avg_acc = []
+        avg_acci = []
+        avg_kappai = []
         for i in self.subs:
             accik = []
+            kappaik = []
             k = 0  # count kFolds
             for data in gent(subject=i):
                 if self._new_fold:  # new fold for cropped training
@@ -389,12 +392,12 @@ class crossValidate(object):
                                       data['x_val'], data['y_val']
                                   ]).history.items()))
 
-                # load the best model for cropped training or evaluating its accuracy
-                model.load_weights(filepath)
-
                 # tf.keras.models.Model.fit()
                 # tf.keras.models.Model.evaluate()
                 # tf.data.Dataset.from_generator()
+
+                # load the best model for cropped training or evaluating its accuracy
+                model.load_weights(filepath)
 
                 if self._last_batch:  # the last batch for cropped training
                     self._last_batch = False
@@ -420,6 +423,11 @@ class crossValidate(object):
                                                    data['y_test'],
                                                    batch_size=self.batch_size,
                                                    verbose=self.verbose)
+                        _pred = model.predict(data['x_test'],
+                                              batch_size=self.batch_size,
+                                              verbose=self.verbose)
+                        pred = np.argmax(_pred, axis=1)
+                        kappa = computeKappa(pred, data['y_test'])
 
                     # save the train history
                     filepath = filepath[:-3] + '.npy'
@@ -436,11 +444,14 @@ class crossValidate(object):
                         gc.collect()
 
                     accik.append(acc)
-            avg_acc.append(np.average(np.array(accik)))
+                    kappaik.append(kappa)
+            avg_acci.append(np.average(np.array(accik)))
+            avg_kappai.append(np.average(np.array(kappaik)))
             data.clear()
             del data
             self._readed = False
-        total_avg_acc = np.average(np.array(avg_acc))
+        avg_acc = np.average(np.array(avg_acci))
+        avg_kappa = np.average(np.array(avg_kappai))
         filepath = os.path.join(
             'result',
             'CV_{0:d}_{1:0>2d}_{2:0>2d}_{3:0>2d}_{4:0>2d}_{5:0>2d}_' \
@@ -449,11 +460,11 @@ class crossValidate(object):
         with open(filepath, 'w+') as f:
             sys.stdout = f
             print(('{0:s} {1:d}-fold ' + self.validation_name +
-                   ' Accuracy').format(self.modelstr, self.kFold))
+                   ' Accuracy (kappa)').format(self.modelstr, self.kFold))
             for i in range(len(self.subs)):
-                print('Subject {0:0>2d}: {1:.2%}'.format(
-                    self.subs[i], avg_acc[i]))
-            print('Average   : {:.2%}'.format(total_avg_acc))
+                print('Subject {0:0>2d}: {1:.2%} ({2:.2f})'.format(
+                    self.subs[i], avg_acci[i], avg_kappai[i]))
+            print('Average   : {0:.2%} ({1:.2f})'.format(avg_acc, avg_kappa))
             sys.stdout = _console
             f.seek(0, 0)
             for line in f.readlines():
@@ -461,8 +472,9 @@ class crossValidate(object):
             f.close()
         if os.path.exists(initfile) and not self.preserve_initfile:
             os.remove(initfile)
-        avg_acc.append(total_avg_acc)
-        return avg_acc
+        avg_acci.append(avg_acc)
+        avg_kappai.append(avg_kappa)
+        return avg_acci, avg_kappai
 
     def __call__(self, *args, **kwargs):
         '''Wraps `call()`.'''
@@ -485,7 +497,7 @@ class crossValidate(object):
             'cropping': self.cropping,
             'winLength': self.winLength,
             'step': self.step,
-            'normalizing': self.normalizing,
+            'standardizing': self.standardizing,
             'batch_size': self.batch_size,
             'epochs': self.epochs,
             'patience': self.patience,
@@ -514,7 +526,7 @@ class crossValidate(object):
                   winLength=None,
                   cpt=None,
                   step=25,
-                  normalizing=True,
+                  standardizing=True,
                   batch_size=10,
                   epochs=300,
                   patience=100,
@@ -542,7 +554,7 @@ class crossValidate(object):
         self.cropping = cropping
         self.winLength = winLength
         self.step = step
-        self.normalizing = normalizing
+        self.standardizing = standardizing
         self.batch_size = batch_size
         self.epochs = epochs
         self.patience = patience
@@ -598,28 +610,25 @@ class crossValidate(object):
             self.step = 4
 
     @staticmethod
-    def _normalize(data: dict):
-        '''Normalizing (z-score) on each trial, supports np.nan numbers'''
+    def _standardize(data: dict, trialaxis=0):
+        '''Standardizing (z-score) on each trial, supports np.nan numbers'''
         # suppose every trials are independent to each other
         meta = ['x_train', 'x_test', 'x_val']
-        # for s in meta:
-        #     if not s in data:
-        #         raise ValueError('Wrong using crossValidate._normalize(data),'
-        #                          ' data is a dict which should have `x_train`'
-        #                          ', `x_test`, and `x_val` keys')
 
         # to prevent different objects be the same one
         data = copy.deepcopy(data)
 
         for s in meta:
             if s in data and not data[s] is None:
-                temp = copy.deepcopy(data[s])
+                _len = len(data[s].shape)
+                if _len > 1:
+                    axis = list(range(_len))
+                    axis.pop(trialaxis)
+                    axis = tuple(axis)
+                else:
+                    axis = -1
                 # z-score on trials
-                for k in np.arange(temp.shape[0]):
-                    mu = np.nanmean(temp[k])
-                    std = np.nanstd(temp[k])
-                    temp[k] = (temp[k] - mu) / std
-                data[s] = temp
+                data[s] = standardization(data[s], axis=axis)
 
         return data
 
@@ -656,8 +665,6 @@ class crossValidate(object):
                     'data', '4s', 'Train', 'A0' + str(subject) + 'T.mat')
             yield self.dataGent(self.traindata_filepath)
 
-    # TODO: should have generators to generate train, val and test
-    #       (data, label) tuples, espacially cropped data.
     def _gent_data(self, subject):
         '''
         Generate (data, label) from dataGent.
@@ -697,8 +704,8 @@ class crossValidate(object):
                 data['y_train'] = y1
                 data['x_val'] = x2
                 data['y_val'] = y2
-                if self.normalizing:
-                    data = self._normalize(data)
+                if self.standardizing:
+                    data = self._standardize(data)
                 if data['x_val'] is None:
                     data['x_val'] = data['x_test']
                     data['y_val'] = data['y_test']
@@ -713,8 +720,8 @@ class crossValidate(object):
                 data['y_train'] = y1
                 data['x_val'] = x2
                 data['y_val'] = y2
-                if self.normalizing:
-                    data = self._normalize(data)
+                if self.standardizing:
+                    data = self._standardize(data)
                 if data['x_val'] is None:
                     data['x_val'] = data['x_test']
                     data['y_val'] = data['y_test']
@@ -769,8 +776,8 @@ class crossValidate(object):
             temp['x_val'] = x2
             temp['y_val'] = y2
             if temp['x_val'] is None:
-                if self.normalizing:
-                    data = self._normalize(temp)
+                if self.standardizing:
+                    data = self._standardize(temp)
                     temp['x_val'] = data['x_test']
                     temp['y_val'] = data['y_test']
                     temp['x_test'] = data['x_test']
@@ -779,8 +786,8 @@ class crossValidate(object):
                     data['x_train'] = x1
                     data['x_val'] = temp['x_val']
             else:
-                if self.normalizing:
-                    data = self._normalize(temp)
+                if self.standardizing:
+                    data = self._standardize(temp)
                     temp['x_test'] = data['x_test']
                     temp['y_test'] = data['y_test']
                 else:
@@ -893,7 +900,7 @@ class gridSearch(crossValidate):
     cropping        : bool, Switch of cropped training. Default = False.
     winLength       : int, cropping window length, default = 2*srate.
     step            : int, cropping step, default = 1.
-    normalizing     : bool, Switch of normalizing data. Default = True.
+    standardizing   : bool, Switch of standardizing data. Default = True.
     batch_size      : int, Batch size.
     epochs          : int, Training epochs.
     patience        : int, Early stopping patience.
@@ -967,7 +974,7 @@ class gridSearch(crossValidate):
                  winLength=None,
                  cpt=None,
                  step=25,
-                 normalizing=True,
+                 standardizing=True,
                  batch_size=10,
                  epochs=300,
                  patience=100,
@@ -990,7 +997,7 @@ class gridSearch(crossValidate):
                          winLength=winLength,
                          cpt=cpt,
                          step=step,
-                         normalizing=normalizing,
+                         standardizing=standardizing,
                          batch_size=batch_size,
                          epochs=epochs,
                          patience=patience,
@@ -1090,7 +1097,8 @@ class gridSearch(crossValidate):
                 else:
                     filename += '{0:s}({1:0>2d})_'.format(key, kwargs[key])
 
-            Acc = []
+            acck = []
+            kappak = []
             k = 0
             for data in gent(subject=self.subs):
                 if self._new_fold:  # new fold for cropped training
@@ -1156,6 +1164,11 @@ class gridSearch(crossValidate):
                                                    data['y_test'],
                                                    batch_size=self.batch_size,
                                                    verbose=self.verbose)
+                        _pred = model.predict(data['x_test'],
+                                              batch_size=self.batch_size,
+                                              verbose=self.verbose)
+                        pred = np.argmax(_pred, axis=1)
+                        kappa = computeKappa(pred, data['y_test'])
 
                     # save the train history
                     npy_filepath = filepath[:-3] + '.npy'
@@ -1171,7 +1184,8 @@ class gridSearch(crossValidate):
                         del model
                         gc.collect()
 
-                    Acc.append(acc)
+                    acck.append(acc)
+                    kappak.append(kappa)
 
             data.clear()
             del data
@@ -1180,7 +1194,8 @@ class gridSearch(crossValidate):
             del model
             gc.collect()
 
-            avg_acc = np.average(np.array(Acc))
+            avg_acc = np.average(np.array(acck))
+            avg_kappa = np.average(np.array(kappak))
             filepath = os.path.join(
                 'result', dirname, filename +
                 'A0{0:d}T_{1:s}.txt'.format(self.subs, self.modelstr))
@@ -1189,19 +1204,21 @@ class gridSearch(crossValidate):
                 print(('{0:s} {1:d}-fold ' + self.validation_name +
                        ' Accuracy').format(self.modelstr, self.kFold))
                 print('Subject {0:0>2d}'.format(self.subs))
-                for i in range(len(Acc)):
-                    print('Fold {0:0>2d}: {1:.2%}'.format(i + 1, Acc[i]))
-                print('Average   : {:.2%}'.format(avg_acc))
+                for i in range(len(acck)):
+                    print('Fold {0:0>2d}: {1:.2%} ({2:.2f})'.format(
+                        i + 1, acck[i], kappak[i]))
+                print('Average   : {:.2%} ({:.2f})'.format(avg_acc, avg_kappa))
                 sys.stdout = _console
                 f.seek(0, 0)
                 for line in f.readlines():
                     print(line)
                 f.close()
 
-            return avg_acc
+            return avg_acc, avg_kappa
 
         parameters = []
         max_avg_acc = []
+        max_acc_kappa = []
         indices = []
         subs = copy.copy(self.subs)
         for subject in subs:
@@ -1220,10 +1237,13 @@ class gridSearch(crossValidate):
                     print(line)
                 f.close()
             avg_acc = []
+            avg_kappa = []
             for parameter in parameters[-1]:
                 self.subs = subject
                 param = dict(parameter + list(kwargs.items()))
-                avg_acc.append(cv(*args, **param))
+                acc, kappa = cv(*args, **param)
+                avg_acc.append(acc)
+                avg_kappa.append(kappa)
                 count += 1
                 with open(filepath, 'w+') as f:
                     sys.stdout = f
@@ -1245,6 +1265,7 @@ class gridSearch(crossValidate):
             self._readed = False
             max_avg_acc.append(np.max(avg_acc))
             indices.append(np.argmax(avg_acc))
+            max_acc_kappa.append(avg_kappa[indices[-1]])
         self.subs = subs
         if os.path.exists(initfile) and not self.preserve_initfile:
             os.remove(initfile)
@@ -1256,11 +1277,11 @@ class gridSearch(crossValidate):
                                tm.tm_min, tm.tm_sec, self.modelstr))
         with open(filepath, 'w+') as f:
             sys.stdout = f
-            print(('{0:s} {1:d}-fold ' + name + ' Accuracy').format(
+            print(('{0:s} {1:d}-fold ' + name + ' Accuracy (kappa)').format(
                 self.modelstr, self.kFold))
             for i in range(len(self.subs)):
-                print('Subject {0:0>2d}: {1:.2%}'.format(
-                    self.subs[i], max_avg_acc[i]))
+                print('Subject {0:0>2d}: {1:.2%} ({2:.2f})'.format(
+                    self.subs[i], max_avg_acc[i], max_acc_kappa[i]))
                 print('Parameters', end='')
                 for n in range(len(parameters[i][indices[i]])):
                     if n == 0:
@@ -1274,16 +1295,18 @@ class gridSearch(crossValidate):
                             parameters[i][indices[i]][n][1]),
                               end='')
                 print()
-            print('Average   : {:.2%}'.format(np.average(max_avg_acc)))
+            print('Average   : {:.2%} ({:.2f})'.format(
+                np.average(max_avg_acc), np.average(max_acc_kappa)))
             sys.stdout = _console
             f.seek(0, 0)
             for line in f.readlines():
                 print(line)
             f.close()
         avg_acc = max_avg_acc
+        avg_kappa = max_acc_kappa
         avg_acc.append(np.average(max_avg_acc))
-
-        return avg_acc
+        avg_kappa.append(np.average(max_acc_kappa))
+        return avg_acc, avg_kappa
 
     def _combination(self, subject):
         '''Solve the combaination of parameters given to Grid Search'''
@@ -1321,7 +1344,7 @@ class gridSearch(crossValidate):
                   cropping=False,
                   winLength=None,
                   step=1,
-                  normalizing=True,
+                  standardizing=True,
                   batch_size=10,
                   epochs=300,
                   patience=100,
@@ -1341,7 +1364,7 @@ class gridSearch(crossValidate):
                           cropping=cropping,
                           winLength=winLength,
                           step=step,
-                          normalizing=normalizing,
+                          standardizing=standardizing,
                           batch_size=batch_size,
                           epochs=epochs,
                           patience=patience,

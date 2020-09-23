@@ -1,6 +1,7 @@
 # -*- coding:utf-8 -*-
 
 import os
+import re
 import math as m
 import numpy as np
 import scipy.io as sio
@@ -221,15 +222,17 @@ def load_locs(filepath=None):
     return locs, names
 
 
-def interestingband(data, axis=-1, srate=250, swapaxes=True):
+def interestingband(data, bands, axis=-1, srate=250, swapaxes=True):
     '''
-    Filter raw signal to five interesting bands - theta, alpha, low beta, high beta,
-     and gamma.
+    Filter raw signal to five interesting bands - theta, alpha, low beta, high beta, 
+    gamma and high gamma. (depends on bands you passed)
+    
     theta: 2-8Hz
     alpha: 8-12Hz
     low beta: 12-20Hz
     high beta: 20-30Hz
     gamma: 30-60Hz
+    high gamma: 80-100Hz
 
     Parameters
     ----------
@@ -246,20 +249,11 @@ def interestingband(data, axis=-1, srate=250, swapaxes=True):
     ```
     '''
     IBdata = []
-    b, a = signal.butter(1, [2, 8], 'bandpass', fs=srate)  # theta
-    IBdata.append(signal.filtfilt(b, a, data, axis=axis))
-
-    b, a = signal.butter(2, [8, 12], 'bandpass', fs=srate)  # alpha
-    IBdata.append(signal.filtfilt(b, a, data, axis=axis))
-
-    b, a = signal.butter(3, [12, 20], 'bandpass', fs=srate)  # low beta
-    IBdata.append(signal.filtfilt(b, a, data, axis=axis))
-
-    b, a = signal.butter(3, [20, 30], 'bandpass', fs=srate)  # high beta
-    IBdata.append(signal.filtfilt(b, a, data, axis=axis))
-
-    b, a = signal.butter(4, [30, 60], 'bandpass', fs=srate)  # gamma
-    IBdata.append(signal.filtfilt(b, a, data, axis=axis))
+    for _band in bands:
+        i = _band.find('-')
+        band = list(map(int, [_band[:i], _band[i + 1:]]))
+        b, a = signal.butter(4, band, 'bandpass', fs=srate)
+        IBdata.append(signal.filtfilt(b, a, data, axis=axis))
 
     # now np.array(IBdata) shapes as[nColors, nTrials, nChannels, nSamples]
     IBdata = np.array(IBdata)
@@ -322,12 +316,56 @@ def bandpassfilter(data, Wn=[.5, 100], srate=250):
     return np.asarray(new_data)
 
 
-def normalization(data):
-    _range = np.max(data) - np.min(data)
-    return (data - np.min(data)) / _range
+def detrend(data, axis=-1):
+    return signal.detrend(data, axis=axis)
 
 
-def standardization(data):
-    mu = np.mean(data, axis=0)
-    sigma = np.std(data, axis=0)
+def moving_average(a, n=3):
+    ret = np.cumsum(a, dtype=float)
+    ret[n:] = ret[n:] - ret[:-n]
+    return ret[n - 1:] / n
+
+
+def unlinearDetrend(data, axis=-1):
+    x = np.arange(data.shape[axis])
+    a = np.polyfit(x, data, 5)
+    b = np.poly1d(a)
+    trend = b(x)
+    return data - trend
+
+
+def normalization(data, axis=-1):
+    '''max-min'''
+    _range = np.nanmax(data, axis=axis, keepdims=True) - np.nanmin(
+        data, axis=axis, keepdims=True)
+    return (data - np.nanmin(data, axis=axis, keepdims=True)) / _range
+
+
+def standardization(data, axis=-1):
+    '''z-score'''
+    mu = np.nanmean(data, axis=axis, keepdims=True)
+    sigma = np.nanstd(data, axis=axis, keepdims=True)
     return (data - mu) / sigma
+
+
+def confusionMatrix(predict, groundTruth):
+    elements = set(groundTruth)
+    _len = len(elements) + 1
+    cm = np.zeros((_len, _len))
+    for (i, j) in zip(predict, groundTruth):
+        cm[int(i), int(j)] += 1
+    cm[-1, -1] = np.sum(cm)
+    for i in np.arange(_len - 1):
+        cm[i, -1] = np.sum(cm[i, :-1])
+        cm[-1, i] = np.sum(cm[:-1, i])
+    return cm
+
+
+def computeKappa(predict, groundTruth):
+    '''Compute kappa using prediction and ground truth'''
+    predict = np.squeeze(predict)
+    groundTruth = np.squeeze(groundTruth)
+    cm = confusionMatrix(predict, groundTruth)
+    p0 = np.mean(predict == groundTruth)
+    pe = np.sum(cm[-1, :-1] * cm[:-1, -1]) / cm[-1, -1]**2
+    return (p0 - pe) / (1 - pe)

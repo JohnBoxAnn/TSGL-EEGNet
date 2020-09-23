@@ -2,7 +2,8 @@
 import os
 import numpy as np
 
-from core.utils import load_data, filterbank, highpassfilter, bandpassfilter
+from core.utils import load_data
+from core.utils import computeKappa
 from core.visualization import visualize
 from core.regularizers import TSG
 from core.train import crossValidate, create_EEGNet
@@ -40,7 +41,10 @@ if __name__ == '__main__':
     data = vis._read_data(srate)
 
     loss, acc = model.evaluate(data['x'], data['y'], batch_size=10, verbose=2)
-    print('loss: %.4f\tacc: %.4f' % (loss, acc))
+    _pred = model.predict(data['x'], batch_size=10, verbose=2)
+    pred = np.argmax(_pred, axis=1)
+    kappa = computeKappa(pred, data['y'])
+    print('loss: %.4f\tacc: %.4f\tkappa: %.4f' % (loss, acc, kappa))
 
     # vis.kernel('tfconv')
     # vis.fft_output('tfconv')
