@@ -159,7 +159,9 @@ class crossValidate(object):
     -------
     ```txt
     avg_acc         : list, Average accuracy for each subject with K-fold Cross Validation, 
-                      and total average accuracy in the last of list
+                      and total average accuracy is at the last of the list
+    avg_kappa       : list, Average kappa for each subject with K-fold Cross Validation, 
+                      and total average kappa is at the last of the list
     ```
 
     Example
@@ -914,7 +916,9 @@ class gridSearch(crossValidate):
     -------
     ```txt
     avg_acc         : list, Average accuracy for each subject with K-fold Cross Validation, 
-                      and total average accuracy in the last of list
+                      and total average accuracy is at the last of the list
+    avg_kappa       : list, Average kappa for each subject with K-fold Cross Validation, 
+                      and total average kappa is at the last of the list
     ```
 
     Example
