@@ -361,8 +361,10 @@ def confusionMatrix(predict, groundTruth):
     return cm
 
 
-def computeKappa(predict, groundTruth):
+def computeKappa(predict, groundTruth, probpred=False):
     '''Compute kappa using prediction and ground truth'''
+    if probpred:
+        predict = np.argmax(predict, axis=1)
     predict = np.squeeze(predict)
     groundTruth = np.squeeze(groundTruth)
     cm = confusionMatrix(predict, groundTruth)

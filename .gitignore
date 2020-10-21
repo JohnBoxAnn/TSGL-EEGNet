@@ -345,3 +345,4 @@ healthchecksdb
 /*.h5
 /*.png
 model/*/
+result/*

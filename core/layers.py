@@ -259,7 +259,7 @@ class rawEEGSelfAttention(BaseSelfAttention):
         super().build(input_shape)
 
     def call(self, inputs):
-        return super().call(inputs, mask)
+        return super().call(inputs)
 
     def compute_output_shape(self, input_shape):
         return input_shape
@@ -302,7 +302,7 @@ class graphEEGSelfAttention(BaseSelfAttention):
         super().build(input_shape)
 
     def call(self, inputs):
-        return super().call(inputs, mask)
+        return super().call(inputs)
 
     def compute_output_shape(self, input_shape):
         return input_shape

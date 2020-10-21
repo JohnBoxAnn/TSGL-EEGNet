@@ -9,6 +9,7 @@ import time
 import logging
 import itertools
 import numpy as np
+from numpy.core.numeric import cross
 import tensorflow as tf
 import matplotlib.pyplot as plt
 from tensorflow.python.keras.api._v2.keras import backend as K
@@ -209,6 +210,7 @@ class crossValidate(object):
                  splitMethod=StratifiedKFold,
                  traindata_filepath=None,
                  testdata_filepath=None,
+                 datadir=None,
                  beg=0.,
                  end=4.,
                  srate=250,
@@ -241,6 +243,7 @@ class crossValidate(object):
         self.splitMethod = splitMethod
         self.traindata_filepath = traindata_filepath
         self.testdata_filepath = testdata_filepath
+        self.datadir = datadir
         self.kFold = kFold
         self.shuffle = shuffle
         self.random_state = random_state
@@ -313,8 +316,10 @@ class crossValidate(object):
             'CV_{0:d}_{1:0>2d}_{2:0>2d}_{3:0>2d}_{4:0>2d}_{5:0>2d}_{6:s}'.
             format(tm.tm_year, tm.tm_mon, tm.tm_mday, tm.tm_hour, tm.tm_min,
                    tm.tm_sec, self.modelstr))
-        os.mkdir(os.path.join('model', dirname))
-        os.mkdir(os.path.join('result', dirname))
+        if not os.path.exists(os.path.join('model', dirname)):
+            os.mkdir(os.path.join('model', dirname))
+        if not os.path.exists(os.path.join('result', dirname)):
+            os.mkdir(os.path.join('result', dirname))
 
         if self.cropping:
             gent = self._gent_cropped_data
@@ -449,8 +454,6 @@ class crossValidate(object):
                     kappaik.append(kappa)
             avg_acci.append(np.average(np.array(accik)))
             avg_kappai.append(np.average(np.array(kappaik)))
-            data.clear()
-            del data
             self._readed = False
         avg_acc = np.average(np.array(avg_acci))
         avg_kappa = np.average(np.array(avg_kappai))
@@ -489,6 +492,7 @@ class crossValidate(object):
             'splitMethod': self.splitMethod,
             'traindata_filepath': self.traindata_filepath,
             'testdata_filepath': self.testdata_filepath,
+            'datadir': self.datadir,
             'beg': self.beg,
             'end': self.end,
             'srate': self.srate,
@@ -517,6 +521,7 @@ class crossValidate(object):
                   splitMethod=StratifiedKFold,
                   traindata_filepath=None,
                   testdata_filepath=None,
+                  datadir=None,
                   beg=0.,
                   end=4.,
                   srate=250,
@@ -549,6 +554,7 @@ class crossValidate(object):
         self.splitMethod = splitMethod
         self.traindata_filepath = traindata_filepath
         self.testdata_filepath = testdata_filepath
+        self.datadir = datadir
         self.kFold = kFold
         self.shuffle = shuffle
         self.random_state = random_state
@@ -659,12 +665,12 @@ class crossValidate(object):
         if mode == 'test':
             if not self.testdata_filepath:
                 self.testdata_filepath = os.path.join(
-                    'data', '4s', 'Test', 'A0' + str(subject) + 'E.mat')
+                    self.datadir, 'A0' + str(subject) + 'E.mat')
             yield self.dataGent(self.testdata_filepath)
         else:
             if not self.traindata_filepath:
                 self.traindata_filepath = os.path.join(
-                    'data', '4s', 'Train', 'A0' + str(subject) + 'T.mat')
+                    self.datadir, 'A0' + str(subject) + 'T.mat')
             yield self.dataGent(self.traindata_filepath)
 
     def _gent_data(self, subject):
@@ -1065,8 +1071,10 @@ class gridSearch(crossValidate):
             'GS_{0:d}_{1:0>2d}_{2:0>2d}_{3:0>2d}_{4:0>2d}_{5:0>2d}_{6:s}'.
             format(tm.tm_year, tm.tm_mon, tm.tm_mday, tm.tm_hour, tm.tm_min,
                    tm.tm_sec, self.modelstr))
-        os.mkdir(os.path.join('model', dirname))
-        os.mkdir(os.path.join('result', dirname))
+        if not os.path.exists(os.path.join('model', dirname)):
+            os.mkdir(os.path.join('model', dirname))
+        if not os.path.exists(os.path.join('result', dirname)):
+            os.mkdir(os.path.join('result', dirname))
 
         if self.cropping:
             gent = self._gent_cropped_data
@@ -1225,6 +1233,11 @@ class gridSearch(crossValidate):
         max_acc_kappa = []
         indices = []
         subs = copy.copy(self.subs)
+        filepath = os.path.join(
+            'result',
+            'GS_{0:d}_{1:0>2d}_{2:0>2d}_{3:0>2d}_{4:0>2d}_{5:0>2d}_' \
+            '{6:s}.txt'.format(tm.tm_year, tm.tm_mon, tm.tm_mday, tm.tm_hour,
+                               tm.tm_min, tm.tm_sec, self.modelstr))
         for subject in subs:
             parameters.append(self._combination(subject=subject))
             count = 0
@@ -1274,11 +1287,6 @@ class gridSearch(crossValidate):
         if os.path.exists(initfile) and not self.preserve_initfile:
             os.remove(initfile)
 
-        filepath = os.path.join(
-            'result',
-            'GS_{0:d}_{1:0>2d}_{2:0>2d}_{3:0>2d}_{4:0>2d}_{5:0>2d}_' \
-            '{6:s}.txt'.format(tm.tm_year, tm.tm_mon, tm.tm_mday, tm.tm_hour,
-                               tm.tm_min, tm.tm_sec, self.modelstr))
         with open(filepath, 'w+') as f:
             sys.stdout = f
             print(('{0:s} {1:d}-fold ' + name + ' Accuracy (kappa)').format(
@@ -1330,8 +1338,11 @@ class gridSearch(crossValidate):
 
     def getConfig(self):
         config = {'parameters': self.parameters}
-        base_config = super().getConfig()
+        base_config = super(crossValidate, self).getConfig()
         return dict(list(base_config.items()) + list(config.items()))
+
+    def getSuperConfig(self):
+        return super(crossValidate, self).getConfig()
 
     def setConfig(self,
                   built_fn,

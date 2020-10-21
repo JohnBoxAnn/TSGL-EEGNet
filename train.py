@@ -33,6 +33,7 @@ def time_format(secs):
 
 train_datapath = os.path.join('data', '4s', 'Train', 'example_data.mat')
 test_datapath = os.path.join('data', '4s', 'Test', 'example_data.mat')
+datadir = os.path.join('data', '4s')
 
 start = timeit.default_timer()
 # Change kFold, epochs and patience to get higher acc
@@ -42,6 +43,7 @@ crossValidate(
     StratifiedKFold,  # AllTrain is usable
     traindata_filepath=train_datapath,
     testdata_filepath=test_datapath,
+    datadir=datadir,
     kFold=5,
     subs=[1],  # If uses datapath, sets subs=[1]
     shuffle=True,
@@ -56,8 +58,8 @@ crossValidate(
     beg=0,
     end=4,
     srate=srate,
-    epochs=20,
-    patience=10)(4,
+    epochs=300,
+    patience=50)(4,
                  F=9,
                  D=4,
                  Ns=4,
