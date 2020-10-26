@@ -14,7 +14,7 @@ from core.utils import computeKappa, walk_files
 _console = sys.stdout
 
 
-class crossValidateTest(_crossValidate):
+class ensembleTest(_crossValidate):
     def __init__(self,
                  built_fn,
                  dataGent,
@@ -72,7 +72,16 @@ class crossValidateTest(_crossValidate):
         self.basepath = cvfolderpath
         self.resavepath = resultsavepath
         if not self.resavepath:
-            self.resavepath = os.path.join('result', 'cvTest.txt')
+            self.resavepath = os.path.join('result', 'ensembleTest.txt')
+
+    def ensemble(self, pred_list):
+        pred = np.zeros((len(pred_list[0]), 4), int)
+        for week_pred in pred_list:
+            i = 0
+            for p in week_pred:
+                pred[i, int(p)] += 1
+                i += 1
+        return np.argmax(pred, axis=1)
 
     def call(self, *args, **kwargs):
         gent = self._read_data
@@ -84,12 +93,11 @@ class crossValidateTest(_crossValidate):
         else:
             _co = {}
 
-        avg_acc_list = []
-        avg_kappa_list = []
+        acc_list = []
+        kappa_list = []
         data = {'x_test': None, 'y_test': None}
         for subject in self.subs:
-            acc_list = []
-            kappa_list = []
+            pred_list = []
             for path in walk_files(
                     os.path.join(self.basepath, '{:0>2d}'.format(subject))):
                 if not self._readed:
@@ -117,40 +125,33 @@ class crossValidateTest(_crossValidate):
                     acc = np.mean(np.array(Pred))
                     kappa = 0.  # None
                 else:
-                    loss, acc = model.evaluate(data['x_test'],
-                                               data['y_test'],
-                                               batch_size=self.batch_size,
-                                               verbose=self.verbose)
                     _pred = model.predict(data['x_test'],
                                           batch_size=self.batch_size,
                                           verbose=self.verbose)
-                    pred = np.argmax(_pred, axis=1)
-                    kappa = computeKappa(pred, data['y_test'])
-
-                acc_list.append(acc)
-                kappa_list.append(kappa)
-            avg_acc_list.append(np.mean(acc_list))
-            avg_kappa_list.append(np.mean(kappa_list))
+                    pred_list.append(np.squeeze(np.argmax(_pred, axis=1)))
+            pred = self.ensemble(pred_list)
+            acc_list.append(np.mean(pred == np.squeeze(data['y_test'])))
+            kappa_list.append(computeKappa(pred, data['y_test']))
             self._readed = False
-        avg_acc = np.mean(avg_acc_list)
-        avg_kappa = np.mean(avg_kappa_list)
+        avg_acc = np.mean(acc_list)
+        avg_kappa = np.mean(kappa_list)
 
         with open(self.resavepath, 'w+') as f:
             sys.stdout = f
-            print(('{0:s} {1:d}-fold ' + self.validation_name +
+            print(('{0:s} {1:d}-fold Ensemble(vote)' + self.validation_name +
                    ' Accuracy (kappa)').format(self.modelstr, self.kFold))
             for i in range(len(self.subs)):
                 print('Subject {0:0>2d}: {1:.2%} ({2:.4f})'.format(
-                    self.subs[i], avg_acc_list[i], avg_kappa_list[i]))
+                    self.subs[i], acc_list[i], kappa_list[i]))
             print('Average   : {0:.2%} ({1:.4f})'.format(avg_acc, avg_kappa))
             sys.stdout = _console
             f.seek(0, 0)
             for line in f.readlines():
                 print(line)
             f.close()
-        avg_acc_list.append(avg_acc)
-        avg_kappa_list.append(avg_kappa)
-        return avg_acc_list, avg_kappa_list
+        acc_list.append(avg_acc)
+        kappa_list.append(avg_kappa)
+        return acc_list, kappa_list
 
     def getConfig(self):
         config = {'cvfolderpath': self.basepath, 'resavepath': self.resavepath}
@@ -199,5 +200,5 @@ if __name__ == '__main__':
         params['splitMethod'] = vars()[params['splitMethod']]
         params['subs'] = subs
 
-    cvt = crossValidateTest(**params)
-    avgacc, avgkappa = cvt()
+    et = ensembleTest(**params)
+    avgacc, avgkappa = et()

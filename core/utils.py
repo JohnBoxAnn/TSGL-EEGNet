@@ -371,3 +371,13 @@ def computeKappa(predict, groundTruth, probpred=False):
     p0 = np.mean(predict == groundTruth)
     pe = np.sum(cm[-1, :-1] * cm[:-1, -1]) / cm[-1, -1]**2
     return (p0 - pe) / (1 - pe)
+
+
+def walk_files(path):
+    file_list = []
+    for root, dirs, files in os.walk(path):
+        for file in files:
+            if file.split('.')[-1] == 'h5':
+                file_path = os.path.join(root, file)
+                file_list.append(file_path)
+    return file_list
