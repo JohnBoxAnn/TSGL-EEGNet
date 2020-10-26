@@ -73,8 +73,10 @@ class ensembleTest(_crossValidate):
         self.resavepath = resultsavepath
         if not self.resavepath:
             self.resavepath = os.path.join('result', 'ensembleTest.txt')
+        self.ename = 'vote'
 
-    def ensemble(self, pred_list):
+    @staticmethod
+    def ensemble(pred_list):
         pred = np.zeros((len(pred_list[0]), 4), int)
         for week_pred in pred_list:
             i = 0
@@ -138,8 +140,9 @@ class ensembleTest(_crossValidate):
 
         with open(self.resavepath, 'w+') as f:
             sys.stdout = f
-            print(('{0:s} {1:d}-fold Ensemble(vote)' + self.validation_name +
-                   ' Accuracy (kappa)').format(self.modelstr, self.kFold))
+            print(('{0:s} {1:d}-fold Ensemble({2:s})' + self.validation_name +
+                   ' Accuracy (kappa)').format(self.modelstr, self.kFold,
+                                               self.ename))
             for i in range(len(self.subs)):
                 print('Subject {0:0>2d}: {1:.2%} ({2:.4f})'.format(
                     self.subs[i], acc_list[i], kappa_list[i]))
