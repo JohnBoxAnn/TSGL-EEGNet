@@ -467,9 +467,9 @@ class crossValidate(object):
             print(('{0:s} {1:d}-fold ' + self.validation_name +
                    ' Accuracy (kappa)').format(self.modelstr, self.kFold))
             for i in range(len(self.subs)):
-                print('Subject {0:0>2d}: {1:.2%} ({2:.2f})'.format(
+                print('Subject {0:0>2d}: {1:.2%} ({2:.4f})'.format(
                     self.subs[i], avg_acci[i], avg_kappai[i]))
-            print('Average   : {0:.2%} ({1:.2f})'.format(avg_acc, avg_kappa))
+            print('Average   : {0:.2%} ({1:.4f})'.format(avg_acc, avg_kappa))
             sys.stdout = _console
             f.seek(0, 0)
             for line in f.readlines():
@@ -665,13 +665,19 @@ class crossValidate(object):
         if mode == 'test':
             if not self.testdata_filepath:
                 self.testdata_filepath = os.path.join(
-                    self.datadir, 'A0' + str(subject) + 'E.mat')
-            yield self.dataGent(self.testdata_filepath)
+                    self.datadir, 'Test', 'A0' + str(subject) + 'E.mat')
+                yield self.dataGent(self.testdata_filepath)
+                self.testdata_filepath = None
+            else:
+                yield self.dataGent(self.testdata_filepath)
         else:
             if not self.traindata_filepath:
                 self.traindata_filepath = os.path.join(
-                    self.datadir, 'A0' + str(subject) + 'T.mat')
-            yield self.dataGent(self.traindata_filepath)
+                    self.datadir, 'Train', 'A0' + str(subject) + 'T.mat')
+                yield self.dataGent(self.traindata_filepath)
+                self.traindata_filepath = None
+            else:
+                yield self.dataGent(self.traindata_filepath)
 
     def _gent_data(self, subject):
         '''
@@ -1217,9 +1223,10 @@ class gridSearch(crossValidate):
                        ' Accuracy').format(self.modelstr, self.kFold))
                 print('Subject {0:0>2d}'.format(self.subs))
                 for i in range(len(acck)):
-                    print('Fold {0:0>2d}: {1:.2%} ({2:.2f})'.format(
+                    print('Fold {0:0>2d}: {1:.2%} ({2:.4f})'.format(
                         i + 1, acck[i], kappak[i]))
-                print('Average   : {:.2%} ({:.2f})'.format(avg_acc, avg_kappa))
+                print('Average   : {0:.2%} ({1:.4f})'.format(
+                    avg_acc, avg_kappa))
                 sys.stdout = _console
                 f.seek(0, 0)
                 for line in f.readlines():
@@ -1292,7 +1299,7 @@ class gridSearch(crossValidate):
             print(('{0:s} {1:d}-fold ' + name + ' Accuracy (kappa)').format(
                 self.modelstr, self.kFold))
             for i in range(len(self.subs)):
-                print('Subject {0:0>2d}: {1:.2%} ({2:.2f})'.format(
+                print('Subject {0:0>2d}: {1:.2%} ({2:.4f})'.format(
                     self.subs[i], max_avg_acc[i], max_acc_kappa[i]))
                 print('Parameters', end='')
                 for n in range(len(parameters[i][indices[i]])):
@@ -1307,7 +1314,7 @@ class gridSearch(crossValidate):
                             parameters[i][indices[i]][n][1]),
                               end='')
                 print()
-            print('Average   : {:.2%} ({:.2f})'.format(
+            print('Average   : {:.2%} ({:.4f})'.format(
                 np.average(max_avg_acc), np.average(max_acc_kappa)))
             sys.stdout = _console
             f.seek(0, 0)

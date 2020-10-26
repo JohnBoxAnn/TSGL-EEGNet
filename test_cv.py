@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import numpy as np
 import tensorflow as tf
@@ -8,8 +9,9 @@ from core.train import create_EEGNet, create_TSGLEEGNet
 from core.generators import rawGenerator
 from core.splits import StratifiedKFold, AllTrain
 from core.regularizers import TSG
-from core.visualization import visualize
 from core.utils import computeKappa
+
+_console = sys.stdout
 
 
 class crossValidateTest(_crossValidate):
@@ -17,6 +19,7 @@ class crossValidateTest(_crossValidate):
                  built_fn,
                  dataGent,
                  cvfolderpath=None,
+                 resultsavepath=None,
                  splitMethod=StratifiedKFold,
                  traindata_filepath=None,
                  testdata_filepath=None,
@@ -67,7 +70,11 @@ class crossValidateTest(_crossValidate):
                          **kwargs)
 
         self.basepath = cvfolderpath
+        self.resavepath = resultsavepath
+        if not self.resavepath:
+            self.resavepath = os.path.join('result', 'cvTest.txt')
 
+    @staticmethod
     def walk_files(path):
         file_list = []
         for root, dirs, files in os.walk(path):
@@ -87,45 +94,78 @@ class crossValidateTest(_crossValidate):
         else:
             _co = {}
 
-        avg_acc = []
-        avg_kappa = []
+        
+        avg_acc_list = []
+        avg_kappa_list = []
+        data = {'x_test': None, 'y_test': None}
         for subject in self.subs:
+            acc_list = []
+            kappa_list = []
             for path in self.walk_files(
                     os.path.join(self.basepath, '{:0>2d}'.format(subject))):
+                if not self._readed:
+                    for data['x_test'], data['y_test'] in gent(subject=subject,
+                                                            mode='test'):
+                        self._readed = True
+                        if self.standardizing:
+                            data = self._standardize(data)
+                model = tf.keras.models.load_model(path,
+                                                    custom_objects=_co)
 
-                for x_test, y_test in gent(subject=subject, mode='test'):
-                    model = tf.keras.models.load_model(path,
-                                                       custom_objects=_co)
-                    model.summary()
+                if self.cropping:
+                    _Pred = []
+                    for cpd in self._cropping_data((data['x_test'], )):
+                        pd = model.predict(cpd, verbose=0)
+                        _Pred.append(
+                            np.argmax(pd, axis=1) == np.squeeze(
+                                data['y_test']))
+                    _Pred = np.array(_Pred)
+                    Pred = []
+                    for i in np.arange(_Pred.shape[1]):
+                        if _Pred[:, i].any():
+                            Pred.append(1)
+                        else:
+                            Pred.append(0)
+                    acc = np.mean(np.array(Pred))
+                    kappa = 0.  # None
+                else:
+                    loss, acc = model.evaluate(data['x_test'],
+                                                data['y_test'],
+                                                batch_size=self.batch_size,
+                                                verbose=self.verbose)
+                    _pred = model.predict(data['x_test'],
+                                            batch_size=self.batch_size,
+                                            verbose=self.verbose)
+                    pred = np.argmax(_pred, axis=1)
+                    kappa = computeKappa(pred, data['y_test'])
 
-                    if self.cropping:
-                        _Pred = []
-                        for cpd in self._cropping_data((x_test, )):
-                            pd = model.predict(cpd, verbose=0)
-                            _Pred.append(
-                                np.argmax(pd, axis=1) == np.squeeze(y_test))
-                        _Pred = np.array(_Pred)
-                        Pred = []
-                        for i in np.arange(_Pred.shape[1]):
-                            if _Pred[:, i].any():
-                                Pred.append(1)
-                            else:
-                                Pred.append(0)
-                        acc = np.mean(np.array(Pred))
-                        kappa = 0. # None
-                    else:
-                        loss, acc = model.evaluate(x_test,
-                                                   y_test,
-                                                   batch_size=self.batch_size,
-                                                   verbose=self.verbose)
-                        _pred = model.predict(x_test,
-                                              batch_size=self.batch_size,
-                                              verbose=self.verbose)
-                        pred = np.argmax(_pred, axis=1)
-                        kappa = computeKappa(pred, y_test)
+                acc_list.append(acc)
+                kappa_list.append(kappa)
+            avg_acc_list.append(np.mean(acc_list))
+            avg_kappa_list.append(np.mean(kappa_list))
+            self._readed = False
+        avg_acc = np.mean(avg_acc_list)
+        avg_kappa = np.mean(avg_kappa_list)
+
+        with open(self.resavepath, 'a+') as f:
+            sys.stdout = f
+            print(('{0:s} {1:d}-fold ' + self.validation_name +
+                   ' Accuracy (kappa)').format(self.modelstr, self.kFold))
+            for i in range(len(self.subs)):
+                print('Subject {0:0>2d}: {1:.2%} ({2:.4f})'.format(
+                    self.subs[i], avg_acc_list[i], avg_kappa_list[i]))
+            print('Average   : {0:.2%} ({1:.4f})'.format(avg_acc, avg_kappa))
+            sys.stdout = _console
+            f.seek(0, 0)
+            for line in f.readlines():
+                print(line)
+            f.close()
+        avg_acc_list.append(avg_acc)
+        avg_kappa_list.append(avg_kappa)
+        return avg_acc_list, avg_kappa_list
 
     def getConfig(self):
-        config = {'cvfolderpath': self.basepath}
+        config = {'cvfolderpath': self.basepath, 'resavepath': self.resavepath}
         base_config = super(_crossValidate, self).getConfig()
         return dict(list(base_config.items()) + list(config.items()))
 
@@ -156,6 +196,8 @@ if __name__ == '__main__':
         'dataGent': rawGenerator,
         'splitMethod': AllTrain,
         'cvfolderpath': cvfolderpath,
+        'datadir': os.path.join('data', '4s'),
+        'kFold': 5,
         'subs': subs,
         'cropping': False
     }
