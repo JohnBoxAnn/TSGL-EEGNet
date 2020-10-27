@@ -4,7 +4,9 @@ import json
 import numpy as np
 import tensorflow as tf
 
-from core.train import crossValidate as _crossValidate
+from io import UnsupportedOperation
+from sklearn.linear_model import LinearRegression
+from test_ensemble import ensembleTest
 from core.train import create_EEGNet, create_TSGLEEGNet
 from core.generators import rawGenerator
 from core.splits import StratifiedKFold, AllTrain
@@ -14,7 +16,7 @@ from core.utils import computeKappa, walk_files
 _console = sys.stdout
 
 
-class crossValidateTest(_crossValidate):
+class boostTest(ensembleTest):
     def __init__(self,
                  built_fn,
                  dataGent,
@@ -45,6 +47,8 @@ class crossValidateTest(_crossValidate):
                  **kwargs):
         super().__init__(built_fn,
                          dataGent,
+                         cvfolderpath=cvfolderpath,
+                         resultsavepath=resultsavepath,
                          splitMethod=splitMethod,
                          traindata_filepath=traindata_filepath,
                          testdata_filepath=testdata_filepath,
@@ -69,12 +73,17 @@ class crossValidateTest(_crossValidate):
                          *args,
                          **kwargs)
 
-        self.basepath = cvfolderpath
-        self.resavepath = resultsavepath
-        if not self.resavepath:
-            self.resavepath = os.path.join('result', 'cvTest.txt')
+        if not resultsavepath:
+            self.resavepath = os.path.join('result', 'boostTest.txt')
+        self.ename = 'boost'
 
-    def call(self, *args, **kwargs):
+    def weightLearner(self):
+        super().weightLearner()
+        vrsavepath = os.path.join('result', 'voterate.txt')
+
+        if self.cropping:
+            raise UnsupportedOperation()
+
         gent = self._read_data
 
         if self.modelstr == 'EEGNet':
@@ -84,81 +93,46 @@ class crossValidateTest(_crossValidate):
         else:
             _co = {}
 
-        avg_acc_list = []
-        avg_kappa_list = []
-        data = {'x_test': None, 'y_test': None}
+        voterate_list = []
+        data = {'x_train': None, 'y_train': None}
         for subject in self.subs:
-            acc_list = []
-            kappa_list = []
+            pred_list = []
             for path in walk_files(
                     os.path.join(self.basepath, '{:0>2d}'.format(subject))):
                 if not self._readed:
-                    for data['x_test'], data['y_test'] in gent(subject=subject,
-                                                               mode='test'):
+                    for data['x_train'], data['y_train'] in gent(
+                            subject=subject, mode='train'):
                         self._readed = True
                         if self.standardizing:
                             data = self._standardize(data)
                 model = tf.keras.models.load_model(path, custom_objects=_co)
-
-                if self.cropping:
-                    _Pred = []
-                    for cpd in self._cropping_data((data['x_test'], )):
-                        pd = model.predict(cpd, verbose=0)
-                        _Pred.append(
-                            np.argmax(pd, axis=1) == np.squeeze(
-                                data['y_test']))
-                    _Pred = np.array(_Pred)
-                    Pred = []
-                    for i in np.arange(_Pred.shape[1]):
-                        if _Pred[:, i].any():
-                            Pred.append(1)
-                        else:
-                            Pred.append(0)
-                    acc = np.mean(np.array(Pred))
-                    kappa = 0.  # None
-                else:
-                    loss, acc = model.evaluate(data['x_test'],
-                                               data['y_test'],
-                                               batch_size=self.batch_size,
-                                               verbose=self.verbose)
-                    _pred = model.predict(data['x_test'],
-                                          batch_size=self.batch_size,
-                                          verbose=self.verbose)
-                    pred = np.argmax(_pred, axis=1)
-                    kappa = computeKappa(pred, data['y_test'])
-
-                acc_list.append(acc)
-                kappa_list.append(kappa)
-            avg_acc_list.append(np.mean(acc_list))
-            avg_kappa_list.append(np.mean(kappa_list))
+                _pred = model.predict(data['x_train'],
+                                      batch_size=self.batch_size,
+                                      verbose=self.verbose)
+                pred_list.append(np.squeeze(np.argmax(_pred, axis=1)))
+            pred = np.array(pred_list)
+            lr = LinearRegression(fit_intercept=False)
+            lr.fit(pred.T, np.squeeze(data['y_train']))
+            self.weight_list[subject - 1] = lr.coef_
+            voterate_list.append(lr.coef_)
             self._readed = False
-        avg_acc = np.mean(avg_acc_list)
-        avg_kappa = np.mean(avg_kappa_list)
-
-        with open(self.resavepath, 'w+') as f:
+        with open(vrsavepath, 'w+') as f:
             sys.stdout = f
-            print(('{0:s} {1:d}-fold ' + self.validation_name +
-                   ' Accuracy (kappa)').format(self.modelstr, self.kFold))
-            for i in range(len(self.subs)):
-                print('Subject {0:0>2d}: {1:.2%} ({2:.4f})'.format(
-                    self.subs[i], avg_acc_list[i], avg_kappa_list[i]))
-            print('Average   : {0:.2%} ({1:.4f})'.format(avg_acc, avg_kappa))
+            print('Boosting Ensemble Vote Rate (Linear Regression)')
+            for subject, vr in zip(self.subs, voterate_list):
+                print('Subject {:0>2d}: '.format(subject),
+                      list(map(lambda x: '{:.2f}'.format(x), vr)))
             sys.stdout = _console
             f.seek(0, 0)
             for line in f.readlines():
                 print(line)
             f.close()
-        avg_acc_list.append(avg_acc)
-        avg_kappa_list.append(avg_kappa)
-        return avg_acc_list, avg_kappa_list
 
     def getConfig(self):
         config = {'cvfolderpath': self.basepath, 'resavepath': self.resavepath}
-        base_config = super(_crossValidate, self).getConfig()
-        return dict(list(base_config.items()) + list(config.items()))
-
-    def getSuperConfig(self):
-        return super(_crossValidate, self).getConfig()
+        base_config = super(ensembleTest, self).getConfig()
+        base_config.update(config)
+        return base_config
 
 
 if __name__ == '__main__':
@@ -187,7 +161,8 @@ if __name__ == '__main__':
         'datadir': os.path.join('data', '4s'),
         'kFold': 5,
         'subs': subs,
-        'cropping': False
+        'cropping': False,
+        'standardizing': True
     }
 
     jsonPath = os.path.join(cvfolderpath, 'params.json')
@@ -199,5 +174,5 @@ if __name__ == '__main__':
         params['splitMethod'] = vars()[params['splitMethod']]
         params['subs'] = subs
 
-    cvt = crossValidateTest(**params)
-    avgacc, avgkappa = cvt()
+    bt = boostTest(**params)
+    avgacc, avgkappa = bt()

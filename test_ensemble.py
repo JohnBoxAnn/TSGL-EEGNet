@@ -73,15 +73,23 @@ class ensembleTest(_crossValidate):
         self.resavepath = resultsavepath
         if not self.resavepath:
             self.resavepath = os.path.join('result', 'ensembleTest.txt')
+        self.weight_list = []
         self.ename = 'vote'
+        self.weightLearner()
+
+    def weightLearner(self):
+        for _ in self.subs:
+            self.weight_list.append([])
+            for _ in range(self.kFold):
+                self.weight_list[-1].append(1 / self.kFold)
 
     @staticmethod
-    def ensemble(pred_list):
-        pred = np.zeros((len(pred_list[0]), 4), int)
-        for week_pred in pred_list:
+    def ensemble(pred_list: list, weight_list: list):
+        pred = np.zeros((len(pred_list[0]), 4))
+        for week_pred, weight in zip(pred_list, weight_list):
             i = 0
             for p in week_pred:
-                pred[i, int(p)] += 1
+                pred[i, int(p)] += weight * 1
                 i += 1
         return np.argmax(pred, axis=1)
 
@@ -131,7 +139,7 @@ class ensembleTest(_crossValidate):
                                           batch_size=self.batch_size,
                                           verbose=self.verbose)
                     pred_list.append(np.squeeze(np.argmax(_pred, axis=1)))
-            pred = self.ensemble(pred_list)
+            pred = self.ensemble(pred_list, self.weight_list[subject - 1])
             acc_list.append(np.mean(pred == np.squeeze(data['y_test'])))
             kappa_list.append(computeKappa(pred, data['y_test']))
             self._readed = False
@@ -140,7 +148,7 @@ class ensembleTest(_crossValidate):
 
         with open(self.resavepath, 'w+') as f:
             sys.stdout = f
-            print(('{0:s} {1:d}-fold Ensemble({2:s})' + self.validation_name +
+            print(('{0:s} {1:d}-fold Ensemble({2:s}) ' + self.validation_name +
                    ' Accuracy (kappa)').format(self.modelstr, self.kFold,
                                                self.ename))
             for i in range(len(self.subs)):
@@ -174,7 +182,7 @@ if __name__ == '__main__':
 
     subs = input('Subs (use commas to separate): ').split(',')
     if subs[0] == '@':
-        subs = int(subs[1:])
+        subs = list(int(subs[1:]))
     else:
         subs = list(map(int, subs))
         if len(subs) == 1:
@@ -191,7 +199,8 @@ if __name__ == '__main__':
         'datadir': os.path.join('data', '4s'),
         'kFold': 5,
         'subs': subs,
-        'cropping': False
+        'cropping': False,
+        'standardizing': True
     }
 
     jsonPath = os.path.join(cvfolderpath, 'params.json')
