@@ -290,17 +290,47 @@ class visualize(object):
         for name in layer_name:
             _weights = self.layer_dict[name].get_weights()[0]
             print(_weights.shape)
+            fig, axs = plt.subplots()
             rci = np.squeeze(_weights)
             fred = np.abs(fft(rci.T))
             fred = fred / len(fred.T)
             fred = fred[:, :int((len(fred.T) / 2)) + 1]
-            fig = plt.figure()
-            plt.title('Weights in layer {} after FFT'.format(name))
-            plt.plot(np.arange(len(fred.T)), fred.T)
+            axs.set_title('Weights in layer {} after FFT'.format(name))
+            axs.set_prop_cycle('color', [
+                plt.cm.Spectral_r(i)
+                for i in np.linspace(0, 1, fred.shape[0])
+            ])
+            axs.plot(np.arange(len(fred.T)), fred.T)
             plt.autoscale(enable=True, axis='both', tight=True)
             plt.tight_layout()
-            plt.margins(0, 0)
             fig.savefig(os.path.join('fft_kernel.png'),
+                        format='png',
+                        transparent=False,
+                        dpi=300,
+                        pad_inches=0)
+            plt.show(block=False)
+
+    def line_kernel(self, layer_name):
+        layer_name = self._check_layer_name(layer_name)
+        plt.rcParams['font.size'] = 16
+        for name in layer_name:
+            _weights = self.layer_dict[name].get_weights()[0]
+            print(_weights.shape)
+            fig, axs = plt.subplots()
+            axs.set_title('Weights in layer {}'.format(name))
+            axs.set_prop_cycle('color', [
+                plt.cm.Spectral_r(i)
+                for i in np.linspace(0, 1, _weights.shape[-1])
+            ])
+            axs.plot(np.squeeze(_weights))
+            plt.subplots_adjust(right=0.99,
+                                left=0.06,
+                                top=0.93,
+                                bottom=0.07,
+                                wspace=0,
+                                hspace=0)
+            plt.margins(0, 0)
+            fig.savefig(os.path.join('line_kernel.png'),
                         format='png',
                         transparent=False,
                         dpi=300,
