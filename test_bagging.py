@@ -16,7 +16,7 @@ from core.utils import computeKappa, walk_files
 _console = sys.stdout
 
 
-class boostTest(ensembleTest):
+class baggingTest(ensembleTest):
     def __init__(self,
                  built_fn,
                  dataGent,
@@ -74,8 +74,8 @@ class boostTest(ensembleTest):
                          **kwargs)
 
         if not resultsavepath:
-            self.resavepath = os.path.join('result', 'boostTest.txt')
-        self.ename = 'boost'
+            self.resavepath = os.path.join('result', 'baggingTest.txt')
+        self.ename = 'bagging'
 
     def weightLearner(self):
         super().weightLearner()
@@ -158,7 +158,7 @@ if __name__ == '__main__':
         'dataGent': rawGenerator,
         'splitMethod': AllTrain,
         'cvfolderpath': cvfolderpath,
-        'datadir': os.path.join('data', '4s'),
+        'datadir': os.path.join('data', 'A'),
         'kFold': 5,
         'subs': subs,
         'cropping': False,
@@ -174,5 +174,5 @@ if __name__ == '__main__':
         params['splitMethod'] = vars()[params['splitMethod']]
         params['subs'] = subs
 
-    bt = boostTest(**params)
+    bt = baggingTest(**params)
     avgacc, avgkappa = bt()

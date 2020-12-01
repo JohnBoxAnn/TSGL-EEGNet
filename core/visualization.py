@@ -161,13 +161,16 @@ class visualize(object):
     def fft_output(self, layer_name):
         layer_name = self._check_layer_name(layer_name)
         _input = self.model.layers[0].input
-        plt.rcParams['font.size'] = 9
+        plt.rcParams['font.size'] = 16
         for name in layer_name:
             _output = self.layer_dict[name].output
             t = K.function(_input, _output)
             r = t(self.data['x'])  # ndarray
             a = []
-            fig, axs = plt.subplots(_output.shape[-1] // 2, 2, sharex=True)
+            fig, axs = plt.subplots(_output.shape[-1] // 2,
+                                    2,
+                                    sharex=True,
+                                    figsize=(12, 6))
             for i in np.arange(_output.shape[-1]):
                 fred = np.abs(fft(r[:, :, :, i]))
                 fred = np.average(fred, axis=0)
@@ -184,10 +187,10 @@ class visualize(object):
                                              tight=True)
                 axs[i // 2, i % 2].set_xlabel(chr(ord('a') + i))
             plt.subplots_adjust(right=0.98,
-                                left=0.05,
+                                left=0.04,
                                 top=0.99,
                                 bottom=0.09,
-                                wspace=0.15,
+                                wspace=0.10,
                                 hspace=0.5)
             plt.show(block=False)
             a = np.average(np.array(a), axis=(0, 1))
@@ -297,8 +300,7 @@ class visualize(object):
             fred = fred[:, :int((len(fred.T) / 2)) + 1]
             axs.set_title('Weights in layer {} after FFT'.format(name))
             axs.set_prop_cycle('color', [
-                plt.cm.Spectral_r(i)
-                for i in np.linspace(0, 1, fred.shape[0])
+                plt.cm.Spectral_r(i) for i in np.linspace(0, 1, fred.shape[0])
             ])
             axs.plot(np.arange(len(fred.T)), fred.T)
             plt.autoscale(enable=True, axis='both', tight=True)
@@ -310,19 +312,21 @@ class visualize(object):
                         pad_inches=0)
             plt.show(block=False)
 
-    def line_kernel(self, layer_name):
+    def line_kernel(self, layer_name, lines: list=None):
         layer_name = self._check_layer_name(layer_name)
         plt.rcParams['font.size'] = 16
         for name in layer_name:
             _weights = self.layer_dict[name].get_weights()[0]
             print(_weights.shape)
+            if lines is None:
+                lines = np.arange(_weights.shape[-1])
             fig, axs = plt.subplots()
             axs.set_title('Weights in layer {}'.format(name))
             axs.set_prop_cycle('color', [
                 plt.cm.Spectral_r(i)
-                for i in np.linspace(0, 1, _weights.shape[-1])
+                for i in np.linspace(0, 1, len(lines))
             ])
-            axs.plot(np.squeeze(_weights))
+            axs.plot(np.squeeze(_weights)[:, lines])
             plt.subplots_adjust(right=0.99,
                                 left=0.06,
                                 top=0.93,

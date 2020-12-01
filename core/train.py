@@ -264,6 +264,12 @@ class crossValidate(object):
         self.Samples = math.ceil(self.end * self.srate - self.beg * self.srate)
         self._check_params()
 
+        if self.datadir:
+            for root, dirs, files in os.walk(self.datadir):
+                if files:
+                    self.dn = files[0][0]
+                    break
+
         self.modelstr = built_fn.__name__[7:]
         if self.splitMethod.__name__ == 'AllTrain':
             self.validation_name = 'Average Validation'
@@ -346,13 +352,19 @@ class crossValidate(object):
 
         avg_acci = []
         avg_kappai = []
+        win_subs_list = []
         for i in self.subs:
             accik = []
             kappaik = []
             k = 0  # count kFolds
+            t = 0  # record model's saving time
+            c = 0  # count windows
+            win = 0  # selected windows
+            win_list = []  # selected windows list
             for data in gent(subject=i):
                 if self._new_fold:  # new fold for cropped training
                     self._new_fold = False
+                    c = 0
 
                     if self.reinit:
                         model = self.built_fn(*args,
@@ -384,6 +396,8 @@ class crossValidate(object):
                                                      statistic_best=True,
                                                      p=0.05)
                     history = {}
+                else:
+                    c += 1
 
                 # TODO: fit(), evaluate() with tf.data.Dataset, then `self._new_fold`
                 #       and `self._last_batch` will be DEPRECATED.
@@ -399,6 +413,11 @@ class crossValidate(object):
                                       data['x_val'], data['y_val']
                                   ]).history.items()))
 
+                if self.cropping:
+                    if not t == os.path.getmtime(checkpointer._filepath):
+                        t = os.path.getmtime(checkpointer._filepath)
+                        win = c
+
                 # tf.keras.models.Model.fit()
                 # tf.keras.models.Model.evaluate()
                 # tf.data.Dataset.from_generator()
@@ -410,21 +429,17 @@ class crossValidate(object):
                     self._last_batch = False
 
                     if self.cropping:
-                        _Pred = []
-                        for cpd in self._cropping_data((data['x_test'], )):
-                            pd = model.predict(cpd, verbose=0)
-                            _Pred.append(
-                                np.argmax(pd, axis=1) == np.squeeze(
-                                    data['y_test']))
-                        _Pred = np.array(_Pred)
-                        Pred = []
-                        for i in np.arange(_Pred.shape[1]):
-                            if _Pred[:, i].any():
-                                Pred.append(1)
-                            else:
-                                Pred.append(0)
-                        acc = np.mean(np.array(Pred))
-                        print('acc: {:.2%}'.format(acc))
+                        win_list.append(win)
+                        print(win_list)
+                        x_test = data['x_test'][:, :, win *
+                                                self.step:win * self.step +
+                                                self.Samples, :]
+                        pd = model.predict(x_test, verbose=0)
+                        pred = np.argmax(pd, axis=1)
+                        acc = np.mean(
+                            np.squeeze(pred) == np.squeeze(data['y_test']))
+                        kappa = computeKappa(pred, data['y_test'])
+                        print('acc: {:.2%}\nkappa: {:.4f}'.format(acc, kappa))
                     else:
                         loss, acc = model.evaluate(data['x_test'],
                                                    data['y_test'],
@@ -454,6 +469,7 @@ class crossValidate(object):
                     kappaik.append(kappa)
             avg_acci.append(np.average(np.array(accik)))
             avg_kappai.append(np.average(np.array(kappaik)))
+            win_subs_list.append(win_list)
             self._readed = False
         avg_acc = np.average(np.array(avg_acci))
         avg_kappa = np.average(np.array(avg_kappai))
@@ -665,7 +681,8 @@ class crossValidate(object):
         if mode == 'test':
             if not self.testdata_filepath:
                 self.testdata_filepath = os.path.join(
-                    self.datadir, 'Test', 'A0' + str(subject) + 'E.mat')
+                    self.datadir, 'Test',
+                    self.dn + '0' + str(subject) + 'E.mat')
                 yield self.dataGent(self.testdata_filepath)
                 self.testdata_filepath = None
             else:
@@ -673,7 +690,8 @@ class crossValidate(object):
         else:
             if not self.traindata_filepath:
                 self.traindata_filepath = os.path.join(
-                    self.datadir, 'Train', 'A0' + str(subject) + 'T.mat')
+                    self.datadir, 'Train',
+                    self.dn + '0' + str(subject) + 'T.mat')
                 yield self.dataGent(self.traindata_filepath)
                 self.traindata_filepath = None
             else:
@@ -707,41 +725,26 @@ class crossValidate(object):
             # for once
             for (self.X1, self.Y1) in self._read_data(subject=subject,
                                                       mode='test'):
-                data['x_test'] = self.X1
-                data['y_test'] = self.Y1
+                pass
             for (self.X2, self.Y2) in self._read_data(subject=subject,
                                                       mode='train'):
                 self._readed = True
-            # for multiple times
-            for (x1, y1), (x2, y2) in self._spilt(self.X2, self.Y2):
-                data['x_train'] = x1
-                data['y_train'] = y1
-                data['x_val'] = x2
-                data['y_val'] = y2
-                if self.standardizing:
-                    data = self._standardize(data)
-                if data['x_val'] is None:
-                    data['x_val'] = data['x_test']
-                    data['y_val'] = data['y_test']
-                self._new_fold = True
-                self._last_batch = True
-                yield data
-        else:
-            data['x_test'] = self.X1
-            data['y_test'] = self.Y1
-            for (x1, y1), (x2, y2) in self._spilt(self.X2, self.Y2):
-                data['x_train'] = x1
-                data['y_train'] = y1
-                data['x_val'] = x2
-                data['y_val'] = y2
-                if self.standardizing:
-                    data = self._standardize(data)
-                if data['x_val'] is None:
-                    data['x_val'] = data['x_test']
-                    data['y_val'] = data['y_test']
-                self._new_fold = True
-                self._last_batch = True
-                yield data
+        data['x_test'] = self.X1
+        data['y_test'] = self.Y1
+        # for multiple times
+        for (x1, y1), (x2, y2) in self._spilt(self.X2, self.Y2):
+            data['x_train'] = x1
+            data['y_train'] = y1
+            data['x_val'] = x2
+            data['y_val'] = y2
+            if self.standardizing:
+                data = self._standardize(data)
+            if data['x_val'] is None:
+                data['x_val'] = data['x_test']
+                data['y_val'] = data['y_test']
+            self._new_fold = True
+            self._last_batch = True
+            yield data
 
     def _gent_cropped_data(self, subject):
         '''
@@ -818,7 +821,7 @@ class crossValidate(object):
                     self._last_batch = True
                 yield temp
 
-    def _cropping_data(self, datas):
+    def _cropping_data(self, datas: tuple):
         L = range(0, self.Samples + 1, self.step)
         for i in L:
             temp = ()

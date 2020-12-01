@@ -31,42 +31,44 @@ def time_format(secs):
     return days, hours, mins, secs
 
 
-train_datapath = os.path.join('data', '4s', 'Train', 'example_data.mat')
-test_datapath = os.path.join('data', '4s', 'Test', 'example_data.mat')
-datadir = os.path.join('data', '4s')
+# train_datapath = os.path.join('data', 'A', 'Train', 'example_data.mat')
+# test_datapath = os.path.join('data', 'A', 'Test', 'example_data.mat')
+train_datapath = None
+test_datapath = None
+datadir = os.path.join('data', 'C')
 
 start = timeit.default_timer()
 # Change kFold, epochs and patience to get higher acc
 crossValidate(
-    create_TSGLEEGNet,
+    create_EEGNet,
     rawGenerator,
-    StratifiedKFold,  # AllTrain is usable
+    AllTrain,  # AllTrain is usable
     traindata_filepath=train_datapath,
     testdata_filepath=test_datapath,
     datadir=datadir,
     kFold=5,
-    subs=[1],  # If uses datapath, sets subs=[1]
+    subs=range(1, 4),  # If uses data_filepath, sets subs=[1]
     shuffle=True,
     standardizing=True,
     preserve_initfile=False,
     reinit=True,
     # If needed, turn cropping on.
     # But its accuracy evaluation indicator is not clear.
-    cropping=True,
+    cropping=False,
     winLength=2 * srate,
     step=25,
     beg=0,
     end=4,
     srate=srate,
     epochs=300,
-    patience=50)(4,
-                 F=9,
-                 D=4,
-                 Ns=4,
-                 FSLength=16,
-                 l1=2.5e-5,
-                 l21=2.5e-5,
-                 tl1=7.5e-6)
+    patience=30)(
+        4,
+        Chans=60,
+        F=8,
+        D=2,
+        Ns=2,
+        FSLength=16,
+    )
 
 # parameters = {
 #     'l1': {
@@ -106,29 +108,33 @@ crossValidate(
 # }
 # OR
 # parameters = {
-#     'l1': list(range(1e-3,1e-5,10)),
-#     'l21': list(range(1e-3,1e-5,10)),
-#     'tl1': list(range(1e-3,1e-5,10))
+#     'l1': [1e-3],
+#     'l21': [1e-3],
+#     'tl1':
+#     list(np.linspace(1e-3, 2.5e-4, 4)) + list(np.linspace(1e-4, 2.5e-5, 4)) +
+#     list(np.linspace(1e-5, 2.5e-6, 4)) + [1e-6, 0.]
 # }
-# OR mix them
-# gridSearch(create_TSGLEEGNet,
-#            parameters,
-#            rawGenerator,
-#            StratifiedKFold,
-#            traindata_filepath=train_datapath,
-#            testdata_filepath=test_datapath,
-#            kFold=10,
-#            subs=[1],
-#            shuffle=True,
-#            normalizing=True,
-#            preserve_initfile=False,
-#            reinit=True,
-#            cropping=False,
-#            beg=0,
-#            end=4,
-#            srate=srate,
-#            epochs=200, # change them
-#            patience=50)(4, F=16, D=10, Ns=20)
+# # OR mix them
+# gridSearch(
+#     create_TSGLEEGNet,
+#     parameters,
+#     rawGenerator,
+#     AllTrain,
+#     traindata_filepath=train_datapath,
+#     testdata_filepath=test_datapath,
+#     datadir=datadir,
+#     kFold=5,
+#     subs=range(1, 4),
+#     shuffle=True,
+#     standardizing=True,
+#     preserve_initfile=False,
+#     reinit=True,
+#     cropping=False,
+#     beg=0,
+#     end=4,
+#     srate=srate,
+#     epochs=300,  # change them
+#     patience=30)(4, Chans=60, F=16, D=10, Ns=20)
 
 end = timeit.default_timer()
 print("Time used: {0:0>2d}d {1:0>2d}h {2:0>2d}m {3:.4f}s".format(

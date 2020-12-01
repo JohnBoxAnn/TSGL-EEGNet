@@ -51,6 +51,8 @@ class MyModelCheckpoint(ModelCheckpoint):
         self.best_acc = -np.Inf
         self.best_loss = np.Inf
 
+        self._filepath = filepath
+
     def _save_model(self, epoch, logs):
         """Saves the model.
 

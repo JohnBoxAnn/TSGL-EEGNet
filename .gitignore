@@ -346,3 +346,8 @@ healthchecksdb
 /*.png
 model/*/
 result/*
+!example_data.mat
+!example_data_label.mat
+![Rr][Ee][Aa][Dd][Mm][Ee].[Mm][Dd]
+!example_model.h5
+!22scan_locs.mat

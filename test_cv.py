@@ -184,7 +184,7 @@ if __name__ == '__main__':
         'dataGent': rawGenerator,
         'splitMethod': AllTrain,
         'cvfolderpath': cvfolderpath,
-        'datadir': os.path.join('data', '4s'),
+        'datadir': os.path.join('data', 'A'),
         'kFold': 5,
         'subs': subs,
         'cropping': False
