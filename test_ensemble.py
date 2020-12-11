@@ -78,10 +78,11 @@ class ensembleTest(_crossValidate):
         self.weightLearner()
 
     def weightLearner(self):
-        for _ in self.subs:
+        for _ in range(max(self.subs)):
             self.weight_list.append([])
+        for sub in self.subs:
             for _ in range(self.kFold):
-                self.weight_list[-1].append(1 / self.kFold)
+                self.weight_list[sub - 1].append(1 / self.kFold)
 
     @staticmethod
     def ensemble(pred_list: list, weight_list: list):
@@ -181,14 +182,14 @@ if __name__ == '__main__':
         raise ValueError('Path isn\'t exists.')
 
     subs = input('Subs (use commas to separate): ').split(',')
-    if subs[0] == '@':
-        subs = list(int(subs[1:]))
+    if subs[0][0] == '@':
+        subs = [int(subs[0][1:])]
     else:
         subs = list(map(int, subs))
         if len(subs) == 1:
             subs = [i for i in range(1, subs[0] + 1)]
     for i in subs:
-        if not os.path.exists(os.path.join(cvfolderpath, ''.format())):
+        if not os.path.exists(os.path.join(cvfolderpath, '{:0>2d}'.format(i))):
             raise ValueError('subject don\'t exists.')
 
     params = {
@@ -196,7 +197,7 @@ if __name__ == '__main__':
         'dataGent': rawGenerator,
         'splitMethod': AllTrain,
         'cvfolderpath': cvfolderpath,
-        'datadir': os.path.join('data', 'A'),
+        'datadir': os.path.join('data', 'C'),
         'kFold': 5,
         'subs': subs,
         'cropping': False,

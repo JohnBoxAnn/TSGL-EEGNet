@@ -169,8 +169,8 @@ if __name__ == '__main__':
         raise ValueError('Path isn\'t exists.')
 
     subs = input('Subs (use commas to separate): ').split(',')
-    if subs[0] == '@':
-        subs = list(int(subs[1:]))
+    if subs[0][0] == '@':
+        subs = [int(subs[0][1:])]
     else:
         subs = list(map(int, subs))
         if len(subs) == 1:

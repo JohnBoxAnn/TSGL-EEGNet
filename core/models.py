@@ -36,6 +36,48 @@ from core.layers import rawEEGAttention
 K.set_image_data_format('channels_last')
 
 
+def EEGAttentionNet(nClasses,
+                    Chans,
+                    Samples,
+                    Colors,
+                    kernLength=64,
+                    F1=9,
+                    D=4,
+                    norm_rate=0.25,
+                    dtype=tf.float32):
+    """
+    Interpretability improvement of EEGNet. Using Attention method.
+    """
+    # Learn from raw EEG signals
+    _input_s = Input(shape=(Chans, Samples, Colors), dtype=dtype)
+    s = Conv2D(F1, (1, kernLength),
+               padding='same',
+               use_bias=False,
+               name='fconv')(_input_s)
+    s = BatchNormalization(axis=-1)(s)
+    s = rawEEGAttention(axis=1, name='catt')(s)
+    s = BatchNormalization(axis=-1)(s)
+    s = DepthwiseConv2D((Chans, 1),
+                        use_bias=False,
+                        depth_multiplier=D,
+                        depthwise_constraint=max_norm(1.),
+                        name='sconv')(s)
+    s = BatchNormalization(axis=-1)(s)
+    s = Activation('elu')(s)
+    s = rawEEGAttention(axis=-1, name='fsatt')(s)
+    s = BatchNormalization(axis=-1)(s)
+    s = AveragePooling2D((1, 4))(s)
+    s = Conv2D(F1 * D, (1, 16), padding='same', use_bias=False, name='fs')(s)
+    s = BatchNormalization(axis=-1)(s)
+    s = Activation('elu')(s)
+    s = AveragePooling2D((1, 8))(s)
+    flatten = Flatten(name='flatten')(s)
+    dense = Dense(nClasses)(flatten)
+    _output_s = Activation('softmax', name='softmax')(dense)
+
+    return Model(inputs=_input_s, outputs=_output_s)
+
+
 def TSGLEEGNet(nClasses,
                Chans,
                Samples,

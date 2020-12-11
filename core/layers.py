@@ -72,12 +72,17 @@ class BaseAttention(Layer):
         super().build(input_shape)
 
     def call(self, inputs):
+        print(inputs.shape)
         t = tf.tensordot(inputs, self.w, [[self.axis], [0]])
+        print(t.shape)
         if self.use_bias:
             K.bias_add(t, self.b)
         softmax = K.softmax(t, axis=-1)
+        print(softmax.shape)
         softmax = tf.tensordot(softmax, self.c, [[self.axis], [0]])
+        print(softmax.shape)
         inputs = tf.multiply(inputs, softmax)
+        print(inputs.shape)
         return inputs
 
     def compute_output_shape(self, input_shape):
@@ -131,6 +136,57 @@ class rawEEGAttention(BaseAttention):
 
     def call(self, inputs):
         return super().call(inputs)
+
+    def compute_output_shape(self, input_shape):
+        return input_shape
+
+    def get_config(self):
+        config = {}
+        base_config = super().get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+
+class rawEEGTimeAttention(BaseAttention):
+    #TODO
+    def __init__(self,
+                 steps=25,
+                 winLength=1000,
+                 axis=-1,
+                 use_bias=False,
+                 kernel_initializer='glorot_uniform',
+                 bias_initializer='zeros',
+                 kernel_regularizer=None,
+                 bias_regularizer=None,
+                 activity_regularizer=None,
+                 kernel_constraint=None,
+                 bias_constraint=None,
+                 name='rawEEGTimeAttention',
+                 **kwargs):
+        super().__init__(axis=axis,
+                         use_bias=use_bias,
+                         kernel_initializer=kernel_initializer,
+                         bias_initializer=bias_initializer,
+                         kernel_regularizer=kernel_regularizer,
+                         bias_regularizer=bias_regularizer,
+                         activity_regularizer=activity_regularizer,
+                         kernel_constraint=kernel_constraint,
+                         bias_constraint=bias_constraint,
+                         name=name,
+                         **kwargs)
+        self.steps = steps
+        self.winLength = winLength
+
+    def build(self, input_shape):
+        super().build(input_shape)
+
+    def call(self, inputs):
+        t = tf.tensordot(inputs, self.w, [[self.axis], [0]])
+        if self.use_bias:
+            K.bias_add(t, self.b)
+        softmax = K.softmax(t, axis=-1)
+        softmax = tf.tensordot(softmax, self.c, [[self.axis], [0]])
+        inputs = tf.multiply(inputs, softmax)
+        return inputs
 
     def compute_output_shape(self, input_shape):
         return input_shape

@@ -1,6 +1,9 @@
+from copy import Error
 import os
 import sys
 import json
+
+from joblib.logger import PrintTime
 import numpy as np
 import tensorflow as tf
 
@@ -81,8 +84,7 @@ class baggingTest(ensembleTest):
         super().weightLearner()
         vrsavepath = os.path.join('result', 'voterate.txt')
 
-        if self.cropping:
-            raise UnsupportedOperation()
+        assert (self.cropping == False)
 
         gent = self._read_data
 
@@ -109,16 +111,19 @@ class baggingTest(ensembleTest):
                 _pred = model.predict(data['x_train'],
                                       batch_size=self.batch_size,
                                       verbose=self.verbose)
-                pred_list.append(np.squeeze(np.argmax(_pred, axis=1)))
+                pred_list.append(
+                    np.squeeze(
+                        np.argmax(_pred, axis=1) == np.squeeze(
+                            data['y_train'])))
             pred = np.array(pred_list)
             lr = LinearRegression(fit_intercept=False)
-            lr.fit(pred.T, np.squeeze(data['y_train']))
+            lr.fit(pred.T, np.squeeze(np.ones_like(data['y_train'])))
             self.weight_list[subject - 1] = lr.coef_
             voterate_list.append(lr.coef_)
             self._readed = False
         with open(vrsavepath, 'w+') as f:
             sys.stdout = f
-            print('Boosting Ensemble Vote Rate (Linear Regression)')
+            print('Bagging Ensemble Vote Rate (Linear Regression)')
             for subject, vr in zip(self.subs, voterate_list):
                 print('Subject {:0>2d}: '.format(subject),
                       list(map(lambda x: '{:.2f}'.format(x), vr)))
@@ -143,23 +148,23 @@ if __name__ == '__main__':
         raise ValueError('Path isn\'t exists.')
 
     subs = input('Subs (use commas to separate): ').split(',')
-    if subs[0] == '@':
-        subs = list(int(subs[1:]))
+    if subs[0][0] == '@':
+        subs = [int(subs[0][1:])]
     else:
         subs = list(map(int, subs))
         if len(subs) == 1:
             subs = [i for i in range(1, subs[0] + 1)]
     for i in subs:
-        if not os.path.exists(os.path.join(cvfolderpath, ''.format())):
+        if not os.path.exists(os.path.join(cvfolderpath, '{:0>2d}'.format(i))):
             raise ValueError('subject don\'t exists.')
 
     params = {
-        'built_fn': create_TSGLEEGNet,
+        'built_fn': create_EEGNet,
         'dataGent': rawGenerator,
         'splitMethod': AllTrain,
         'cvfolderpath': cvfolderpath,
         'datadir': os.path.join('data', 'A'),
-        'kFold': 5,
+        'kFold': 10,
         'subs': subs,
         'cropping': False,
         'standardizing': True

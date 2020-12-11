@@ -14,12 +14,39 @@ import tensorflow as tf
 import matplotlib.pyplot as plt
 from tensorflow.python.keras.api._v2.keras import backend as K
 
-from core.models import EEGNet, TSGLEEGNet, ShallowConvNet, DeepConvNet, MB3DCNN
+from core.models import EEGNet, TSGLEEGNet, ShallowConvNet, DeepConvNet, MB3DCNN, EEGAttentionNet
 from core.splits import StratifiedKFold
 from core.callbacks import MyModelCheckpoint, EarlyStopping
 from core.utils import standardization, computeKappa
 
 _console = sys.stdout
+
+
+def create_EEGAttentionNet(nClasses,
+                           Samples,
+                           Chans=22,
+                           Colors=1,
+                           F=9,
+                           D=4,
+                           kernLength=64,
+                           optimizer=tf.keras.optimizers.Adam,
+                           lrate=1e-3,
+                           loss='sparse_categorical_crossentropy',
+                           metrics=['accuracy'],
+                           summary=True):
+    model = EEGAttentionNet(nClasses,
+                            Chans=Chans,
+                            Colors=Colors,
+                            Samples=Samples,
+                            kernLength=kernLength,
+                            F1=F,
+                            D=D)
+    model.compile(optimizer=optimizer(lrate), loss=loss, metrics=metrics)
+    if summary:
+        model.summary()
+        # export graph of the model
+        # tf.keras.utils.plot_model(model, 'EEGNet.png', show_shapes=True)
+    return model
 
 
 def create_MB3DCNN(nClasses,
@@ -357,6 +384,7 @@ class crossValidate(object):
             accik = []
             kappaik = []
             k = 0  # count kFolds
+            # cropped training
             t = 0  # record model's saving time
             c = 0  # count windows
             win = 0  # selected windows
@@ -462,7 +490,6 @@ class crossValidate(object):
 
                     if self.reinit:
                         K.clear_session()
-                        del model
                         gc.collect()
 
                     accik.append(acc)
@@ -471,6 +498,7 @@ class crossValidate(object):
             avg_kappai.append(np.average(np.array(kappaik)))
             win_subs_list.append(win_list)
             self._readed = False
+        del model
         avg_acc = np.average(np.array(avg_acci))
         avg_kappa = np.average(np.array(avg_kappai))
         filepath = os.path.join(
@@ -1202,7 +1230,6 @@ class gridSearch(crossValidate):
 
                     if self.reinit:
                         K.clear_session()
-                        del model
                         gc.collect()
 
                     acck.append(acc)
