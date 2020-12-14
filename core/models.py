@@ -5,9 +5,11 @@ import tensorflow as tf
 from tensorflow.python.keras.api._v2.keras import Input, Model
 from tensorflow.python.keras.api._v2.keras.layers import Dense, \
                                            Conv2D, \
+                                           Conv1D, \
                                            Conv3D, \
                                            Concatenate, \
                                            BatchNormalization, \
+                                           LayerNormalization, \
                                            AveragePooling2D, \
                                            AveragePooling3D, \
                                            MaxPooling2D, \
@@ -23,7 +25,8 @@ from tensorflow.python.keras.api._v2.keras.layers import Dense, \
                                            Lambda, \
                                            Multiply, \
                                            Reshape, \
-                                           Add
+                                           Add, \
+                                           Subtract
 from tensorflow.python.keras.api._v2.keras.constraints import max_norm, \
                                                               min_max_norm, \
                                                               unit_norm
@@ -50,12 +53,10 @@ def EEGAttentionNet(nClasses,
     """
     # Learn from raw EEG signals
     _input_s = Input(shape=(Chans, Samples, Colors), dtype=dtype)
-    s = Conv2D(F1, (1, kernLength),
-               padding='same',
-               use_bias=False,
-               name='fconv')(_input_s)
-    s = BatchNormalization(axis=-1)(s)
-    s = rawEEGAttention(axis=1, name='catt')(s)
+    s = SeparableConv2D(F1, (1, kernLength),
+                        padding='same',
+                        use_bias=False,
+                        name='fconv')(_input_s)
     s = BatchNormalization(axis=-1)(s)
     s = DepthwiseConv2D((Chans, 1),
                         use_bias=False,
@@ -64,15 +65,30 @@ def EEGAttentionNet(nClasses,
                         name='sconv')(s)
     s = BatchNormalization(axis=-1)(s)
     s = Activation('elu')(s)
-    s = rawEEGAttention(axis=-1, name='fsatt')(s)
-    s = BatchNormalization(axis=-1)(s)
-    s = AveragePooling2D((1, 4))(s)
-    s = Conv2D(F1 * D, (1, 16), padding='same', use_bias=False, name='fs')(s)
-    s = BatchNormalization(axis=-1)(s)
-    s = Activation('elu')(s)
-    s = AveragePooling2D((1, 8))(s)
-    flatten = Flatten(name='flatten')(s)
-    dense = Dense(nClasses)(flatten)
+    s = AveragePooling2D((1, 32))(s)
+    att = rawEEGAttention(axis=-1, name='att1')(s)
+    att = Add()([s, att])
+    att = LayerNormalization()(att)
+    fwd = Dense(s.shape[-1])(att)
+    fwd = Dense(s.shape[-1])(fwd)
+    fwd = Add()([fwd, att])
+    fwd = LayerNormalization()(fwd)
+    att = rawEEGAttention(axis=-1, name='att2')(fwd)
+    att = Add()([s, att])
+    att = LayerNormalization()(att)
+    fwd = Dense(s.shape[-1])(att)
+    fwd = Dense(s.shape[-1])(fwd)
+    fwd = Add()([fwd, att])
+    fwd = LayerNormalization()(fwd)
+    att = rawEEGAttention(axis=-1, name='att3')(fwd)
+    att = Add()([s, att])
+    att = LayerNormalization()(att)
+    fwd = Dense(s.shape[-1])(att)
+    fwd = Dense(s.shape[-1])(fwd)
+    fwd = Add()([fwd, att])
+    fwd = LayerNormalization()(fwd)
+    flatten = Flatten(name='flatten')(fwd)
+    dense = Dense(nClasses, kernel_constraint=max_norm(norm_rate))(flatten)
     _output_s = Activation('softmax', name='softmax')(dense)
 
     return Model(inputs=_input_s, outputs=_output_s)

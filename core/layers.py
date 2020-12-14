@@ -72,17 +72,12 @@ class BaseAttention(Layer):
         super().build(input_shape)
 
     def call(self, inputs):
-        print(inputs.shape)
         t = tf.tensordot(inputs, self.w, [[self.axis], [0]])
-        print(t.shape)
         if self.use_bias:
             K.bias_add(t, self.b)
         softmax = K.softmax(t, axis=-1)
-        print(softmax.shape)
         softmax = tf.tensordot(softmax, self.c, [[self.axis], [0]])
-        print(softmax.shape)
         inputs = tf.multiply(inputs, softmax)
-        print(inputs.shape)
         return inputs
 
     def compute_output_shape(self, input_shape):
