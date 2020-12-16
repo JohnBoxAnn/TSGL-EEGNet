@@ -416,8 +416,8 @@ class crossValidate(object):
                         f.close()
 
                     filepath = os.path.join(
-                        'model', dirname, filename +
-                        'A0{0:d}T_{1:s}({2:d}).h5'.format(i, self.modelstr, k))
+                        'model', dirname, filename + self.dn +
+                        '0{0:d}T_{1:s}({2:d}).h5'.format(i, self.modelstr, k))
                     checkpointer = MyModelCheckpoint(filepath=filepath,
                                                      verbose=1,
                                                      save_best_only=True,
@@ -1010,6 +1010,9 @@ class gridSearch(crossValidate):
                  parameters: dict,
                  dataGent,
                  splitMethod=StratifiedKFold,
+                 traindata_filepath=None,
+                 testdata_filepath=None,
+                 datadir=None,
                  beg=0,
                  end=4,
                  srate=250,
@@ -1033,6 +1036,9 @@ class gridSearch(crossValidate):
         super().__init__(built_fn=built_fn,
                          dataGent=dataGent,
                          splitMethod=splitMethod,
+                         traindata_filepath=traindata_filepath,
+                         testdata_filepath=testdata_filepath,
+                         datadir=datadir,
                          beg=beg,
                          end=end,
                          srate=srate,
@@ -1079,20 +1085,25 @@ class gridSearch(crossValidate):
                 _subs_targeted_parameters.append(parameter)
         temp = []
         if _subs_targeted:
-            for subject in self.subs:
+            for subject in range(1, max(self.subs) + 1):
                 items = []
                 for parameter in parameters:
-                    if parameter in _subs_targeted_parameters:
-                        items += list(
-                            {parameter:
-                             parameters[parameter][str(subject)]}.items())
-                    else:
-                        items += list({parameter:
-                                       parameters[parameter]}.items())
+                    if subject in self.subs:
+                        if parameter in _subs_targeted_parameters:
+                            items += list({
+                                parameter:
+                                parameters[parameter][str(subject)]
+                            }.items())
+                        else:
+                            items += list({parameter:
+                                           parameters[parameter]}.items())
                 temp.append(dict(items))
         else:
-            for subject in self.subs:
-                temp.append(parameters)
+            for subject in range(1, max(self.subs) + 1):
+                if subject in self.subs:
+                    temp.append(parameters)
+                else:
+                    temp.append([])
 
         self.parameters = temp
 
@@ -1161,7 +1172,7 @@ class gridSearch(crossValidate):
                     k += 1
                     filepath = os.path.join(
                         'model', dirname,
-                        filename + 'A0{0:d}T_{1:s}({2:d}).h5'.format(
+                        filename + self.dn + '0{0:d}T_{1:s}({2:d}).h5'.format(
                             self.subs, self.modelstr, k))
                     checkpointer = MyModelCheckpoint(
                         filepath=filepath,

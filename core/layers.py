@@ -1,4 +1,5 @@
 # coding:utf-8
+import numpy as np
 import tensorflow as tf
 from tensorflow.python.keras.api._v2.keras.layers import Softmax
 from tensorflow.python.keras.api._v2.keras.layers import Dense
@@ -64,19 +65,23 @@ class BaseAttention(Layer):
                                      regularizer=self.bias_regularizer,
                                      constraint=self.bias_constraint,
                                      trainable=True)
-        self.c = self.add_weight(name='constant',
-                                 shape=(input_shape[-1], input_shape[-1]),
-                                 dtype=self.dtype,
-                                 initializer=initializers.get('identity'),
-                                 trainable=False)
-        super().build(input_shape)
+        self.built = True
 
     def call(self, inputs):
-        t = tf.tensordot(inputs, self.w, [[self.axis], [0]])
+        if self.axis < 0:
+            N = -self.axis - 1
+        else:
+            N = len(inputs.shape) - self.axis - 1
+        t = tf.stack(tf.unstack(inputs, axis=-1), axis=self.axis)
+        for n in np.arange(1, N):
+            t = tf.stack(tf.unstack(t, axis=-1), axis=self.axis + n)
+        t = tf.matmul(t, self.w)
         if self.use_bias:
             K.bias_add(t, self.b)
         softmax = K.softmax(t, axis=-1)
-        softmax = tf.tensordot(softmax, self.c, [[self.axis], [0]])
+        for n in np.arange(N):
+            softmax = tf.stack(tf.unstack(softmax, axis=-1),
+                               axis=self.axis + n)
         inputs = tf.multiply(inputs, softmax)
         return inputs
 
@@ -141,7 +146,89 @@ class rawEEGAttention(BaseAttention):
         return dict(list(base_config.items()) + list(config.items()))
 
 
-class rawEEGTimeAttention(BaseAttention):
+class BaseMultiHeadAttention(BaseAttention):
+    def __init__(self,
+                 heads,
+                 axis=-1,
+                 use_bias=False,
+                 kernel_initializer='glorot_uniform',
+                 bias_initializer='zeros',
+                 kernel_regularizer=None,
+                 bias_regularizer=None,
+                 activity_regularizer=None,
+                 kernel_constraint=None,
+                 bias_constraint=None,
+                 name='BaseMultiHeadAttention',
+                 **kwargs):
+        super().__init__(axis=axis,
+                         use_bias=use_bias,
+                         kernel_initializer=kernel_initializer,
+                         bias_initializer=bias_initializer,
+                         kernel_regularizer=kernel_regularizer,
+                         bias_regularizer=bias_regularizer,
+                         activity_regularizer=activity_regularizer,
+                         kernel_constraint=kernel_constraint,
+                         bias_constraint=bias_constraint,
+                         name=name,
+                         **kwargs)
+        self.heads = heads
+
+    def build(self, input_shape):
+        self.w = self.add_weight(name='kernel',
+                                 shape=(self.heads, input_shape[self.axis],
+                                        input_shape[self.axis]),
+                                 dtype=self.dtype,
+                                 initializer=self.kernel_initializer,
+                                 regularizer=self.kernel_regularizer,
+                                 constraint=self.kernel_constraint,
+                                 trainable=True)
+        self.w0 = self.add_weight(name='fusion',
+                                  shape=(self.heads, input_shape[self.axis],
+                                         input_shape[self.axis]),
+                                  dtype=self.dtype,
+                                  initializer=self.kernel_initializer,
+                                  regularizer=self.kernel_regularizer,
+                                  constraint=self.kernel_constraint,
+                                  trainable=True)
+        if self.use_bias:
+            self.b = self.add_weight(name='bias',
+                                     shape=(self.heads,
+                                            input_shape[self.axis]),
+                                     dtype=self.dtype,
+                                     initializer=self.bias_initializer,
+                                     regularizer=self.bias_regularizer,
+                                     constraint=self.bias_constraint,
+                                     trainable=True)
+        self.built = True
+
+    def call(self, inputs):
+        if self.axis < 0:
+            N = -self.axis - 1
+        else:
+            N = len(inputs.shape) - self.axis - 1
+        t = tf.stack(tf.unstack(inputs, axis=-1), axis=self.axis)
+        for n in np.arange(1, N):
+            t = tf.stack(tf.unstack(t, axis=-1), axis=self.axis + n)
+        t = tf.matmul(t, self.w)
+        if self.use_bias:
+            K.bias_add(t, self.b)
+        softmax = K.softmax(t, axis=-1)
+        for n in np.arange(N):
+            softmax = tf.stack(tf.unstack(softmax, axis=-1),
+                               axis=self.axis + n)
+        inputs = tf.multiply(inputs, softmax)
+        return inputs
+
+    def compute_output_shape(self, input_shape):
+        return input_shape
+
+    def get_config(self):
+        config = {}
+        base_config = super().get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+
+class rawEEGTimeAttention(BaseMultiHeadAttention):
     #TODO
     def __init__(self,
                  steps=25,
@@ -182,46 +269,6 @@ class rawEEGTimeAttention(BaseAttention):
         softmax = tf.tensordot(softmax, self.c, [[self.axis], [0]])
         inputs = tf.multiply(inputs, softmax)
         return inputs
-
-    def compute_output_shape(self, input_shape):
-        return input_shape
-
-    def get_config(self):
-        config = {}
-        base_config = super().get_config()
-        return dict(list(base_config.items()) + list(config.items()))
-
-
-class graphEEGAttention(BaseAttention):
-    def __init__(self,
-                 axis=-1,
-                 use_bias=False,
-                 kernel_initializer='glorot_uniform',
-                 bias_initializer='zeros',
-                 kernel_regularizer=None,
-                 bias_regularizer=None,
-                 activity_regularizer=None,
-                 kernel_constraint=None,
-                 bias_constraint=None,
-                 name='graphEEGAttention',
-                 **kwargs):
-        super().__init__(axis=axis,
-                         use_bias=use_bias,
-                         kernel_initializer=kernel_initializer,
-                         bias_initializer=bias_initializer,
-                         kernel_regularizer=kernel_regularizer,
-                         bias_regularizer=bias_regularizer,
-                         activity_regularizer=activity_regularizer,
-                         kernel_constraint=kernel_constraint,
-                         bias_constraint=bias_constraint,
-                         name=name,
-                         **kwargs)
-
-    def build(self, input_shape):
-        super().build(input_shape)
-
-    def call(self, inputs):
-        return super().call(inputs)
 
     def compute_output_shape(self, input_shape):
         return input_shape
