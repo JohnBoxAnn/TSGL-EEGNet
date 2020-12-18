@@ -587,11 +587,11 @@ class crossValidate(object):
                   *args,
                   **kwargs):
         self.built_fn = built_fn
-        self.dataGent = dataGent(*args,
-                                 **kwargs,
-                                 beg=beg,
+        self.dataGent = dataGent(beg=beg,
                                  end=end,
-                                 srate=srate)
+                                 srate=srate,
+                                 *args,
+                                 **kwargs)
         self.beg = beg
         self.end = end
         self.srate = srate
@@ -605,23 +605,31 @@ class crossValidate(object):
         self.subs = subs
         self.cropping = cropping
         self.winLength = winLength
+        self.cpt = cpt
         self.step = step
         self.standardizing = standardizing
         self.batch_size = batch_size
         self.epochs = epochs
         self.patience = patience
         self.verbose = verbose
+        self.preserve_initfile = preserve_initfile
+        self.reinit = reinit
         self.args = args
         self.kwargs = kwargs
         self.Samples = math.ceil(self.end * self.srate - self.beg * self.srate)
         self._check_params()
 
+        if self.datadir:
+            for root, dirs, files in os.walk(self.datadir):
+                if files:
+                    self.dn = files[0][0]
+                    break
+
         self.modelstr = built_fn.__name__[7:]
-        if self.dataGent.__name__ == 'AllTrain':
+        if self.splitMethod.__name__ == 'AllTrain':
             self.validation_name = 'Average Validation'
         else:
             self.validation_name = 'Cross Validation'
-        self.built = False
         self._new_fold = True
         self._last_batch = False
 
@@ -1256,8 +1264,8 @@ class gridSearch(crossValidate):
             avg_acc = np.average(np.array(acck))
             avg_kappa = np.average(np.array(kappak))
             filepath = os.path.join(
-                'result', dirname, filename +
-                'A0{0:d}T_{1:s}.txt'.format(self.subs, self.modelstr))
+                'result', dirname, filename + self.dn +
+                '0{0:d}T_{1:s}.txt'.format(self.subs, self.modelstr))
             with open(filepath, 'w+') as f:
                 sys.stdout = f
                 print(('{0:s} {1:d}-fold ' + self.validation_name +
@@ -1397,26 +1405,35 @@ class gridSearch(crossValidate):
                   parameters: dict,
                   dataGent,
                   splitMethod=StratifiedKFold,
+                  traindata_filepath=None,
+                  testdata_filepath=None,
+                  datadir=None,
                   beg=0,
                   end=4,
                   srate=250,
                   kFold=10,
                   shuffle=False,
                   random_state=None,
-                  subs: list = range(1, 10),
+                  subs=range(1, 10),
                   cropping=False,
                   winLength=None,
-                  step=1,
+                  cpt=None,
+                  step=25,
                   standardizing=True,
                   batch_size=10,
                   epochs=300,
                   patience=100,
                   verbose=2,
+                  preserve_initfile=False,
+                  reinit=False,
                   *args,
                   **kwargs):
         super().setConfig(built_fn=built_fn,
                           dataGent=dataGent,
                           splitMethod=splitMethod,
+                          traindata_filepath=traindata_filepath,
+                          testdata_filepath=testdata_filepath,
+                          datadir=datadir,
                           beg=beg,
                           end=end,
                           srate=srate,
@@ -1426,12 +1443,15 @@ class gridSearch(crossValidate):
                           subs=subs,
                           cropping=cropping,
                           winLength=winLength,
+                          cpt=cpt,
                           step=step,
                           standardizing=standardizing,
                           batch_size=batch_size,
                           epochs=epochs,
                           patience=patience,
                           verbose=verbose,
+                          preserve_initfile=preserve_initfile,
+                          reinit=reinit,
                           *args,
                           **kwargs)
         _subs_targeted = False
@@ -1444,7 +1464,7 @@ class gridSearch(crossValidate):
                     parameters[parameter], dict):
                 parameters[parameter] = list(parameters[parameter])
             if isinstance(parameters[parameter], dict):
-                subs = list(self.subs).copy()
+                subs = list(self.subs)
                 for subject in parameters[parameter]:
                     if not int(subject) in self.subs:
                         raise ValueError('`parameters` has unsolved subject'
@@ -1460,19 +1480,24 @@ class gridSearch(crossValidate):
                 _subs_targeted_parameters.append(parameter)
         temp = []
         if _subs_targeted:
-            for subject in self.subs:
+            for subject in range(1, max(self.subs) + 1):
                 items = []
                 for parameter in parameters:
-                    if parameter in _subs_targeted_parameters:
-                        items += list(
-                            {parameter:
-                             parameters[parameter][str(subject)]}.items())
-                    else:
-                        items += list({parameter:
-                                       parameters[parameter]}.items())
+                    if subject in self.subs:
+                        if parameter in _subs_targeted_parameters:
+                            items += list({
+                                parameter:
+                                parameters[parameter][str(subject)]
+                            }.items())
+                        else:
+                            items += list({parameter:
+                                           parameters[parameter]}.items())
                 temp.append(dict(items))
         else:
-            for subject in self.subs:
-                temp.append(parameters)
+            for subject in range(1, max(self.subs) + 1):
+                if subject in self.subs:
+                    temp.append(parameters)
+                else:
+                    temp.append([])
 
         self.parameters = temp
