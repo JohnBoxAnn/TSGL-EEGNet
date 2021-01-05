@@ -159,12 +159,12 @@ if __name__ == '__main__':
             raise ValueError('subject don\'t exists.')
 
     params = {
-        'built_fn': create_EEGNet,
+        'built_fn': create_TSGLEEGNet,
         'dataGent': rawGenerator,
         'splitMethod': AllTrain,
         'cvfolderpath': cvfolderpath,
         'datadir': os.path.join('data', 'A'),
-        'kFold': 10,
+        'kFold': 5,
         'subs': subs,
         'cropping': False,
         'standardizing': True

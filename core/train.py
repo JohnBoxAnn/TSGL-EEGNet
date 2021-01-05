@@ -392,6 +392,7 @@ class crossValidate(object):
             for data in gent(subject=i):
                 if self._new_fold:  # new fold for cropped training
                     self._new_fold = False
+                    t = 0
                     c = 0
 
                     if self.reinit:
@@ -1167,10 +1168,17 @@ class gridSearch(crossValidate):
 
             acck = []
             kappak = []
-            k = 0
+            k = 0  # count kFolds
+            # cropped training
+            t = 0  # record model's saving time
+            c = 0  # count windows
+            win = 0  # selected windows
+            win_list = []  # selected windows list
             for data in gent(subject=self.subs):
                 if self._new_fold:  # new fold for cropped training
                     self._new_fold = False
+                    t = 0
+                    c = 0
 
                     if self.reinit:
                         model = self.built_fn(*args,
@@ -1205,6 +1213,11 @@ class gridSearch(crossValidate):
                                       data['x_val'], data['y_val']
                                   ]).history.items()))
 
+                if self.cropping:
+                    if not t == os.path.getmtime(checkpointer._filepath):
+                        t = os.path.getmtime(checkpointer._filepath)
+                        win = c
+
                 # load the best model for cropped training or evaluating its accuracy
                 model.load_weights(filepath)
 
@@ -1212,21 +1225,16 @@ class gridSearch(crossValidate):
                     self._last_batch = False
 
                     if self.cropping:
-                        _Pred = []
-                        for cpd in self._cropping_data((data['x_test'], )):
-                            pd = model.predict(cpd, verbose=0)
-                            _Pred.append(
-                                np.argmax(pd, axis=1) == np.squeeze(
-                                    data['y_test']))
-                        _Pred = np.array(_Pred)
-                        Pred = []
-                        for i in np.arange(_Pred.shape[1]):
-                            if _Pred[:, i].any():
-                                Pred.append(1)
-                            else:
-                                Pred.append(0)
-                        acc = np.mean(np.array(Pred))
-                        print('acc: {:.2%}'.format(acc))
+                        win_list.append(win)
+                        print(win_list)
+                        x_test = data['x_test'][:, :, win *
+                                                self.step:win * self.step +
+                                                self.Samples, :]
+                        pd = model.predict(x_test, verbose=0)
+                        pred = np.argmax(pd, axis=1)
+                        acc = np.mean(
+                            np.squeeze(pred) == np.squeeze(data['y_test']))
+                        kappa = computeKappa(pred, data['y_test'])
                     else:
                         loss, acc = model.evaluate(data['x_test'],
                                                    data['y_test'],
