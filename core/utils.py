@@ -252,7 +252,7 @@ def interestingband(data, bands, axis=-1, srate=250, swapaxes=True):
     for _band in bands:
         i = _band.find('-')
         band = list(map(int, [_band[:i], _band[i + 1:]]))
-        b, a = signal.butter(4, band, 'bandpass', fs=srate)
+        b, a = signal.butter(5, band, 'bandpass', fs=srate)
         IBdata.append(signal.filtfilt(b, a, data, axis=axis))
 
     # now np.array(IBdata) shapes as[nColors, nTrials, nChannels, nSamples]

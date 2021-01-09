@@ -1193,7 +1193,6 @@ class gridSearch(crossValidate):
                     checkpointer = MyModelCheckpoint(
                         filepath=filepath,
                         verbose=1,
-                        #  save_weights_only=True, # save model occures error
                         save_best_only=True,
                         statistic_best=True,
                         p=0.05)

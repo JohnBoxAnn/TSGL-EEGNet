@@ -1,6 +1,7 @@
 # coding:utf-8
 import os
 import copy
+from mne.transforms import rotation
 import numpy as np
 import tensorflow as tf
 import scipy.signal as signal
@@ -167,37 +168,66 @@ class visualize(object):
             t = K.function(_input, _output)
             r = t(self.data['x'])  # ndarray
             a = []
-            fig, axs = plt.subplots(_output.shape[-1] // 2,
-                                    2,
-                                    sharex=True,
-                                    figsize=(12, 6))
+            fig = plt.figure(figsize=(16, 5))
+            gs = fig.add_gridspec(_output.shape[-1] // 2, 2)
             for i in np.arange(_output.shape[-1]):
                 fred = np.abs(fft(r[:, :, :, i]))
                 fred = np.average(fred, axis=0)
                 fred = fred / len(fred.T)
                 fred = fred[:, :101]
                 a.append(fred)
-                axs[i // 2, i % 2].set_prop_cycle('color', [
+            a = normalization(np.array(a), axis=None)
+            a = [a[i, :] for i in range(a.shape[0])]
+            for i in np.arange(_output.shape[-1]):
+                ax = fig.add_subplot(gs[i // 2, i % 2])
+                if i == 1:
+                    ax_legend = ax
+                fred = a[i]
+                ax.set_prop_cycle('color', [
                     plt.cm.Spectral_r(i) for i in np.linspace(0, 1, len(fred))
                 ])
                 for col in np.arange(len(fred)):
-                    axs[i // 2, i % 2].plot(np.arange(len(fred.T)), fred[col])
-                axs[i // 2, i % 2].autoscale(enable=True,
-                                             axis='both',
-                                             tight=True)
-                axs[i // 2, i % 2].set_xlabel(chr(ord('a') + i))
-            plt.subplots_adjust(right=0.98,
-                                left=0.04,
-                                top=0.99,
-                                bottom=0.09,
-                                wspace=0.10,
-                                hspace=0.5)
-            plt.show(block=False)
-            a = np.average(np.array(a), axis=(0, 1))
-            plt.figure()
-            plt.plot(np.arange(len(a)), a)
+                    ax.plot(np.arange(len(fred.T)),
+                            fred[col],
+                            label='electrode {:d}'.format(col + 1))
+                text = inset_axes(ax,
+                                  '100%',
+                                  '100%',
+                                  bbox_to_anchor=(0.85, 0.65, 0.1, 0.3),
+                                  bbox_transform=ax.transAxes,
+                                  borderpad=0)
+                self._ban_axis(text)
+                text.text(0.5,
+                          0,
+                          'Filter (' + chr(ord('a') + i) + ')',
+                          horizontalalignment='center',
+                          verticalalignment='center',
+                          transform=text.transAxes)
+                ax.autoscale(enable=True, axis='both', tight=True)
+                ax.set_xticks([0, 20, 40, 60, 80, 100])
+                ax.set_xticklabels(['0', '20', '40', '60', '80', '100'], fontsize=12)
+                if i // 2 == _output.shape[-1] // 2 - 1:
+                    ax.set_xlabel('Frequency /Hz')
+                else:
+                    ax.set_xticklabels([])
+                ax.set_yticks([0, 1.0])
+                ax.set_yticklabels(['0', '1'], fontsize=12)
+                if i % 2 == 0:
+                    ax.set_ylabel('AMP')
+                else:
+                    ax.set_yticklabels([])
+            ax_legend.legend(loc=2,
+                             ncol=2,
+                             bbox_to_anchor=(1.0325, 1.0),
+                             borderaxespad=0.,
+                             bbox_transform=ax_legend.transAxes)
             plt.autoscale(enable=True, axis='both', tight=True)
-            plt.tight_layout()
+            plt.subplots_adjust(right=0.7325,
+                                left=0.0325,
+                                top=0.985,
+                                bottom=0.11725,
+                                wspace=0.05,
+                                hspace=0.33)
             plt.margins(0, 0)
             fig.savefig(os.path.join('fft_output.png'),
                         format='png',
@@ -231,18 +261,22 @@ class visualize(object):
 
     def topo_kernel(self, layer_name):
         layer_name = self._check_layer_name(layer_name)
-        plt.rcParams['font.size'] = 9
+        plt.rcParams['font.size'] = 16
         for name in layer_name:
             _weights = self.layer_dict[name].get_weights()[0]
             print(_weights.shape)
             _min = np.min(_weights)
             _max = np.max(_weights)
             n = 1
-            fig, axs = plt.subplots()
+            fig = plt.figure(figsize=(16, 9))
+            gs = fig.add_gridspec(
+                (_weights.shape[-2] * _weights.shape[-1] // 20) * 4 + 1, 20)
             for i in range(_weights.shape[-2]):
                 for j in range(_weights.shape[-1]):
-                    ax = plt.subplot(
-                        _weights.shape[-2] * _weights.shape[-1] // 20, 20, n)
+                    ax = fig.add_subplot(
+                        gs[((n - 1) // 20) * 4:((n - 1) // 20 + 1) * 4,
+                           (n - 1) % 20])
+                    self._ban_axis(ax)
                     im, cn = viz.plot_topomap(
                         np.squeeze(_weights[:, :, i, j]),
                         self.locs,
@@ -255,28 +289,34 @@ class visualize(object):
                         extrapolate='head',
                         sphere=(0, 0, 0, 1))  # draw topographic image
                     if n <= 20:
-                        ax.spines['bottom'].set_position(('axes', 1.2))
+                        ax.spines['bottom'].set_position(('axes', 1.3))
                         if n <= 10:
-                            ax.set_xlabel(n, fontsize=12)
+                            ax.set_xlabel(n, fontsize=16)
                         else:
-                            ax.set_xlabel(n - 10, fontsize=12)
+                            ax.set_xlabel(n - 10, fontsize=16)
                     if n % 20 == 1:
-                        ax.spines['left'].set_position(('axes', 0.07))
-                        ax.set_ylabel(chr(ord('a') + n // 10), fontsize=12)
+                        ax.spines['left'].set_position(('axes', 0.08))
+                        ax.set_ylabel('('+chr(ord('a') + n // 10)+')',
+                                      fontsize=16,
+                                      rotation=90)
                     if n % 20 == 0:
-                        ax.spines['left'].set_position(('axes', 1.22))
-                        ax.set_ylabel(chr(ord('a') - 1 + n // 10), fontsize=12)
+                        ax.spines['left'].set_position(('axes', 1.35))
+                        ax.set_ylabel('('+chr(ord('a') - 1 + n // 10)+')',
+                                      fontsize=16,
+                                      rotation=90)
                     n += 1
+            axs = fig.add_subplot(
+                gs[(_weights.shape[-2] * _weights.shape[-1] // 20) * 4, :])
+            self._ban_axis(axs)
             divider = make_axes_locatable(axs)
-            cax = divider.append_axes('bottom', size='1%', pad=0.6)
+            cax = divider.append_axes('top', size='10%', pad=1)
             cb = fig.colorbar(im,
                               cax=cax,
                               orientation='horizontal',
-                              ticklocation='top')
-            plt.tight_layout(pad=0)
-            plt.subplots_adjust(right=0.99,
-                                left=0.01,
-                                top=1,
+                              ticklocation='bottom')
+            plt.subplots_adjust(right=0.98,
+                                left=0.02,
+                                top=0.99,
                                 bottom=0,
                                 wspace=0,
                                 hspace=0)
@@ -312,7 +352,7 @@ class visualize(object):
                         pad_inches=0)
             plt.show(block=False)
 
-    def line_kernel(self, layer_name, lines: list=None):
+    def line_kernel(self, layer_name, lines: list = None):
         layer_name = self._check_layer_name(layer_name)
         plt.rcParams['font.size'] = 16
         for name in layer_name:
@@ -322,10 +362,9 @@ class visualize(object):
                 lines = np.arange(_weights.shape[-1])
             fig, axs = plt.subplots()
             axs.set_title('Weights in layer {}'.format(name))
-            axs.set_prop_cycle('color', [
-                plt.cm.Spectral_r(i)
-                for i in np.linspace(0, 1, len(lines))
-            ])
+            axs.set_prop_cycle(
+                'color',
+                [plt.cm.Spectral_r(i) for i in np.linspace(0, 1, len(lines))])
             axs.plot(np.squeeze(_weights)[:, lines])
             plt.subplots_adjust(right=0.99,
                                 left=0.06,
@@ -456,27 +495,25 @@ class visualize(object):
         for name in layer_name:
             _output = self.layer_dict[name].output
             t = K.function(_input, _output)
-            fig, axs = plt.subplots(2, 2, sharex=True)
+            fig, axs = plt.subplots()
+            unselected = []
             for c in class_data:
-                r = t(class_data[c]['x'])  # ndarray
-                fred = np.abs(fft(r, axis=2))
-                fred = np.average(fred, axis=(0, 1, -1))
-                fred = fred / len(fred)
+                unselected.append(t(class_data[c]['x']))
+            axs.set_prop_cycle('color', 'rbgy')
+            for c in class_data:
+                fred = np.mean(np.abs(fft(np.array(unselected[c]), axis=2)),
+                               axis=(0, 1, -1))
+                fred = fred / len(fred.T)
                 fred = fred[:101]
-                axs[c // 2, c % 2].plot(np.arange(len(fred)), fred)
-                axs[c // 2,
-                    c % 2].set_xlabel('({}) {}'.format(chr(c + 97),
-                                                       self.class_names[c]))
-                axs[c // 2, c % 2].autoscale(enable=True,
-                                             axis='both',
-                                             tight=True)
-            plt.subplots_adjust(right=0.97,
-                                left=0.07,
-                                top=0.99,
-                                bottom=0.10,
-                                wspace=0.17,
-                                hspace=0.10)
-            plt.margins(0, 0)
+                axs.plot(np.arange(len(fred.T)),
+                         fred.T,
+                         label='({}) {}'.format(chr(c + 97),
+                                                self.class_names[c]))
+                axs.set_xlabel('Frequency /Hz')
+                axs.set_ylabel('Amplitude')
+            axs.autoscale(enable=True, axis='both', tight=True)
+            plt.legend(loc='upper right')
+            plt.tight_layout(pad=0.25, h_pad=0, w_pad=1)
             fig.savefig(os.path.join('class_fft_output.png'),
                         format='png',
                         transparent=False,
@@ -539,32 +576,30 @@ class visualize(object):
         for name in layer_name:
             layer = self.layer_dict[name]
             layer_model = tf.keras.Model([_input], [layer.output, _output])
-            fig, axs = plt.subplots(2, 2, sharex=True, sharey=True)
+            fig, axs = plt.subplots()
+            selected = []
             for c in class_data:
                 with tf.GradientTape() as g:
                     conv_output, Pred = layer_model(class_data[c]['x'])
                     prob = Pred[:, c]
                     grads = g.gradient(prob, conv_output)
-                    pooled_grads = K.sum(grads, axis=(0, 1, 2))
-                selected = tf.multiply(pooled_grads, conv_output)
-                fred = np.average(np.abs(fft(np.array(selected), axis=2)),
-                                  axis=(0, 1, -1))
+                pooled_grads = K.sum(grads, axis=(0, 1, 2))
+                selected.append(tf.multiply(pooled_grads, conv_output))
+            axs.set_prop_cycle('color', 'rbgy')
+            for c in class_data:
+                fred = np.mean(np.abs(fft(np.array(selected[c]), axis=2)),
+                               axis=(0, 1, -1))
                 fred = fred / len(fred.T)
                 fred = fred[:101]
-                axs[c // 2, c % 2].plot(np.arange(len(fred.T)), fred.T)
-                axs[c // 2,
-                    c % 2].set_xlabel('({}) {}'.format(chr(c + 97),
-                                                       self.class_names[c]))
-                axs[c // 2, c % 2].autoscale(enable=True,
-                                             axis='both',
-                                             tight=True)
-            plt.subplots_adjust(right=0.97,
-                                left=0.05,
-                                top=0.96,
-                                bottom=0.10,
-                                wspace=0.13,
-                                hspace=0.10)
-            plt.margins(0, 0)
+                axs.plot(np.arange(len(fred.T)),
+                         fred.T,
+                         label='({}) {}'.format(chr(c + 97),
+                                                self.class_names[c]))
+                axs.set_xlabel('Frequency /Hz')
+                axs.set_ylabel('Amplitude')
+            axs.autoscale(enable=True, axis='both', tight=True)
+            plt.legend(loc='upper right')
+            plt.tight_layout(pad=0.25, h_pad=0, w_pad=1)
             fig.savefig(os.path.join('fs_class_fft_output.png'),
                         format='png',
                         transparent=False,
@@ -577,13 +612,13 @@ class visualize(object):
         class_data = self._class_data(self.data)
         _input = self.model.input
         _output = self.model.output
-        ib = ['2-8', '8-12', '12-20', '20-30', '30-60', '80-100']
+        ib = ['2-8', '8-12', '12-20', '20-30', '30-60']
         plt.rcParams['font.size'] = 12
         for name in layer_name:
             layer = self.layer_dict[name]
             _weights = layer.get_weights()[0]
             layer_model = tf.keras.Model([_input], [layer.output, _output])
-            fig = plt.figure(figsize=(12, 6))
+            fig = plt.figure(figsize=(8, 6))
             gs = fig.add_gridspec(2, 2)
             for c in class_data:
                 axs = fig.add_subplot(gs[c])
@@ -643,13 +678,13 @@ class visualize(object):
                               verticalalignment='center',
                               transform=cax_text.transAxes)
                 text_0.text(0,
-                            0.45,
+                            0.5,
                             '0',
                             horizontalalignment='left',
                             verticalalignment='center',
                             transform=text_0.transAxes)
                 text_1.text(1,
-                            0.45,
+                            0.5,
                             '1',
                             horizontalalignment='right',
                             verticalalignment='center',
@@ -660,6 +695,7 @@ class visualize(object):
                            horizontalalignment='left',
                            verticalalignment='center',
                            transform=title.transAxes)
+                s_weights = []
                 for i in np.arange(ibclass_data.shape[0]):
                     with tf.GradientTape() as g:
                         conv_output, Pred = layer_model(ibclass_data[i])
@@ -669,10 +705,15 @@ class visualize(object):
                     pooled_grads = tf.reshape(pooled_grads,
                                               shape=(_weights.shape[-2],
                                                      _weights.shape[-1]))
-                    s_weights = normalization(
+                    s_weights.append(
                         np.mean(np.abs(np.array(pooled_grads * _weights)),
                                 axis=(1, 2, 3)))
-                    width = 1. / ibclass_data.shape[0]
+                s_weights = normalization(np.array(s_weights), axis=None)
+                s_weights = [
+                    s_weights[i, :] for i in range(s_weights.shape[0])
+                ]
+                for i in np.arange(len(s_weights)):
+                    width = 1. / len(s_weights)
                     ax_i = inset_axes(ax,
                                       '100%',
                                       '100%',
@@ -683,10 +724,8 @@ class visualize(object):
                     ax_i.set_xlabel('{}'.format(ib[i] + 'Hz'))
                     # self._ban_axis(ax_i)
                     im, cn = viz.plot_topomap(
-                        s_weights,
+                        s_weights[i],
                         self.locs,
-                        vmax=1,
-                        vmin=0,
                         names=self.sensors_name,
                         show_names=True,
                         show=False,

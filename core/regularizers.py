@@ -55,7 +55,7 @@ class TSG(Regularizer):
             regularization += self.l21 * tf.reduce_sum(
                 tf.sqrt(
                     tf.multiply(
-                        tf.cast(ntf.shape[0] * ntf.shape[1], tf.float32),
+                        tf.cast(ntf.shape[2], tf.float32),
                         tf.reduce_sum(tf.square(ntf), [0, 1]))))
         if self.tl1:
             regularization += self.tl1 * tf.reduce_sum(
