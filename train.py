@@ -47,7 +47,7 @@ start = timeit.default_timer()
 #     testdata_filepath=test_datapath,
 #     datadir=datadir,
 #     kFold=1,
-#     subs=range(5, 6),  # If uses data_filepath, sets subs=[1]
+#     subs=range(5, 6),  # If use 'traindata_filepath' or 'testdata_filepath', set subs=[1]
 #     shuffle=True,
 #     standardizing=True,
 #     preserve_initfile=False,
@@ -75,7 +75,7 @@ start = timeit.default_timer()
 #     testdata_filepath=test_datapath,
 #     datadir=datadir,
 #     kFold=5,
-#     subs=range(1, 4),  # If uses data_filepath, sets subs=[1]
+#     subs=range(1, 4),  # If If use 'traindata_filepath' or 'testdata_filepath', set subs=[1]
 #     shuffle=True,
 #     standardizing=True,
 #     preserve_initfile=False,

@@ -55,6 +55,7 @@ if __name__ == '__main__':
         model,
         vis_data_file=filepath,
         cropping=cropping,
+        step=25,
         beg=beg,
         end=end,
         srate=srate)

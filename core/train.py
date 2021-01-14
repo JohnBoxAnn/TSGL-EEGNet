@@ -296,6 +296,8 @@ class crossValidate(object):
                 if files:
                     self.dn = files[0][0]
                     break
+        else:
+            self.dn = ''
 
         self.modelstr = built_fn.__name__[7:]
         if self.splitMethod.__name__ == 'AllTrain':
@@ -343,7 +345,6 @@ class crossValidate(object):
 
     def call(self, *args, **kwargs):
         initfile = os.path.join('.', 'CV_initweight.h5')
-        name = 'Cross Validate'
         tm = time.localtime()
         dirname = (
             'CV_{0:d}_{1:0>2d}_{2:0>2d}_{3:0>2d}_{4:0>2d}_{5:0>2d}_{6:s}'.
@@ -459,7 +460,6 @@ class crossValidate(object):
 
                     if self.cropping:
                         win_list.append(win)
-                        print(win_list)
                         x_test = data['x_test'][:, :, win *
                                                 self.step:win * self.step +
                                                 self.Samples, :]
@@ -468,7 +468,9 @@ class crossValidate(object):
                         acc = np.mean(
                             np.squeeze(pred) == np.squeeze(data['y_test']))
                         kappa = computeKappa(pred, data['y_test'])
-                        print('acc: {:.2%}\nkappa: {:.4f}'.format(acc, kappa))
+                        print(
+                            'win: {:0>2d}\nacc: {:.2%}\nkappa: {:.4f}'.format(
+                                win, acc, kappa))
                     else:
                         loss, acc = model.evaluate(data['x_test'],
                                                    data['y_test'],
@@ -486,8 +488,8 @@ class crossValidate(object):
 
                     # reset model's weights to train a new one next fold
                     if os.path.exists(initfile) and not self.reinit:
-                        model.load_weights(initfile)
                         model.reset_states()
+                        model.load_weights(initfile)
 
                     if self.reinit:
                         K.clear_session()
@@ -498,6 +500,7 @@ class crossValidate(object):
             avg_acci.append(np.average(np.array(accik)))
             avg_kappai.append(np.average(np.array(kappaik)))
             win_subs_list.append(win_list)
+            print(win_list)
             self._readed = False
         del model
         avg_acc = np.average(np.array(avg_acci))
@@ -513,7 +516,13 @@ class crossValidate(object):
                    ' Accuracy (kappa)').format(self.modelstr, self.kFold))
             for i in range(len(self.subs)):
                 print('Subject {0:0>2d}: {1:.2%} ({2:.4f})'.format(
-                    self.subs[i], avg_acci[i], avg_kappai[i]))
+                    self.subs[i], avg_acci[i], avg_kappai[i]),
+                      end='')
+                if self.cropping:
+                    print(', Window:{:0>2d}'.format(win_subs_list[i][np.argmax(
+                        np.bincount(win_subs_list[i]))]))
+                else:
+                    print()
             print('Average   : {0:.2%} ({1:.4f})'.format(avg_acc, avg_kappa))
             sys.stdout = _console
             f.seek(0, 0)
@@ -1122,7 +1131,6 @@ class gridSearch(crossValidate):
         subject's parameter to cv.
         '''
         initfile = os.path.join('.', 'GSCV_initweight.h5')
-        name = 'Cross Validate Grid Search'
         tm = time.localtime()
         dirname = (
             'GS_{0:d}_{1:0>2d}_{2:0>2d}_{3:0>2d}_{4:0>2d}_{5:0>2d}_{6:s}'.
@@ -1190,12 +1198,11 @@ class gridSearch(crossValidate):
                         'model', dirname,
                         filename + self.dn + '0{0:d}T_{1:s}({2:d}).h5'.format(
                             self.subs, self.modelstr, k))
-                    checkpointer = MyModelCheckpoint(
-                        filepath=filepath,
-                        verbose=1,
-                        save_best_only=True,
-                        statistic_best=True,
-                        p=0.05)
+                    checkpointer = MyModelCheckpoint(filepath=filepath,
+                                                     verbose=1,
+                                                     save_best_only=True,
+                                                     statistic_best=True,
+                                                     p=0.05)
                     history = {}
 
                 # TODO: fit(), evaluate() with tf.data.Dataset, then `self._new_fold`
@@ -1225,7 +1232,6 @@ class gridSearch(crossValidate):
 
                     if self.cropping:
                         win_list.append(win)
-                        print(win_list)
                         x_test = data['x_test'][:, :, win *
                                                 self.step:win * self.step +
                                                 self.Samples, :]
@@ -1251,8 +1257,8 @@ class gridSearch(crossValidate):
 
                     # reset model's weights to train a new one next fold
                     if os.path.exists(initfile) and not self.reinit:
-                        model.load_weights(initfile)
                         model.reset_states()
+                        model.load_weights(initfile)
 
                     if self.reinit:
                         K.clear_session()
@@ -1270,6 +1276,7 @@ class gridSearch(crossValidate):
 
             avg_acc = np.average(np.array(acck))
             avg_kappa = np.average(np.array(kappak))
+            win = win_list[np.argmax(np.bincount(win_list))]
             filepath = os.path.join(
                 'result', dirname, filename + self.dn +
                 '0{0:d}T_{1:s}.txt'.format(self.subs, self.modelstr))
@@ -1281,6 +1288,8 @@ class gridSearch(crossValidate):
                 for i in range(len(acck)):
                     print('Fold {0:0>2d}: {1:.2%} ({2:.4f})'.format(
                         i + 1, acck[i], kappak[i]))
+                if self.cropping:
+                    print('Window:{:0>2d}'.format(win))
                 print('Average   : {0:.2%} ({1:.4f})'.format(
                     avg_acc, avg_kappa))
                 sys.stdout = _console
@@ -1352,8 +1361,9 @@ class gridSearch(crossValidate):
 
         with open(filepath, 'w+') as f:
             sys.stdout = f
-            print(('{0:s} {1:d}-fold ' + name + ' Accuracy (kappa)').format(
-                self.modelstr, self.kFold))
+            print(('{0:s} {1:d}-fold ' + self.validation_name +
+                   'Grid Search Accuracy (kappa)').format(
+                       self.modelstr, self.kFold))
             for i in range(len(self.subs)):
                 print('Subject {0:0>2d}: {1:.2%} ({2:.4f})'.format(
                     self.subs[i], max_avg_acc[i], max_acc_kappa[i]))
