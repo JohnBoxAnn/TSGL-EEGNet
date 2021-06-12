@@ -65,6 +65,19 @@ If you use the EEGNet model in your research and found it helpful, please cite t
         url={http://stacks.iop.org/1741-2552/15/i=5/a=056013},
         year={2018}
     }
+    
+If you use the TSGL-EEGNet model in your research and find this Repository is helpful, please cite the following paper:
+
+    @article{Deng2021,
+        author={Deng, Xin and Zhang, Boxian and Yu, Nian and Liu, Ke and Sun, Kaiwei},
+        journal={IEEE Access},
+        title={Advanced TSGL-EEGNet for Motor Imagery EEG-Based Brain-Computer Interfaces},
+        year={2021},
+        volume={9},
+        number={},
+        pages={25118-25130},
+        doi={10.1109/ACCESS.2021.3056088}
+    }
 
 # License
 
