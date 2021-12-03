@@ -88,11 +88,11 @@ class AllTrain(_BaseCrossValidator):
         split. You can make the results identical by setting ``random_state``
         to an integer.
         """
+        rng = check_random_state(self.random_state)
         X, y, groups = indexable(X, y, groups)
         for test, train in super().split(X, y, groups):
             if self.shuffle:
-                np.random.seed(self.random_state)
-                np.random.shuffle(train)
+                rng.shuffle(train)
             yield train, test
 
     def get_n_splits(self, X=None, y=None, groups=None):
@@ -120,6 +120,5 @@ class AllTrain(_BaseCrossValidator):
         n_samples = _num_samples(X)
         indices = np.arange(n_samples)
 
-        n_splits = self.n_splits
-        for n in range(n_splits):
+        for _ in range(self.n_splits):
             yield indices

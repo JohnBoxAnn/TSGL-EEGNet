@@ -32,66 +32,26 @@ from tensorflow.python.keras.api._v2.keras.constraints import max_norm, \
                                                               unit_norm
 from tensorflow.python.keras.api._v2.keras import backend as K
 
-from core.regularizers import l_1, l_2, l1_l2, l2_1, tsc, sgl, tsgl
-from core.constraints import std_norm
-from core.layers import rawEEGAttention
+from core.regularizers import l_1, l_2, l1_l2, l2_1, tsc, sgl, tsgl, TSG
 
 K.set_image_data_format('channels_last')
 
 
-def EEGAttentionNet(nClasses,
-                    Chans,
-                    Samples,
-                    Colors,
-                    kernLength=64,
-                    F1=9,
-                    D=4,
-                    norm_rate=0.25,
-                    dtype=tf.float32):
-    """
-    Interpretability improvement of EEGNet. Using Attention method.
-    """
-    # Learn from raw EEG signals
-    _input_s = Input(shape=(Chans, Samples, Colors), dtype=dtype)
-    s = SeparableConv2D(F1, (1, kernLength),
-                        padding='same',
-                        use_bias=False,
-                        name='fconv')(_input_s)
-    s = BatchNormalization(axis=-1)(s)
-    s = DepthwiseConv2D((Chans, 1),
-                        use_bias=False,
-                        depth_multiplier=D,
-                        depthwise_constraint=max_norm(1.),
-                        name='sconv')(s)
-    s = BatchNormalization(axis=-1)(s)
-    s = Activation('elu')(s)
-    s = AveragePooling2D((1, 32))(s)
-    att = rawEEGAttention(axis=-1, name='att1')(s)
-    att = Add()([s, att])
-    att = LayerNormalization()(att)
-    fwd = Dense(s.shape[-1])(att)
-    fwd = Dense(s.shape[-1])(fwd)
-    fwd = Add()([fwd, att])
-    fwd = LayerNormalization()(fwd)
-    att = rawEEGAttention(axis=-1, name='att2')(fwd)
-    att = Add()([s, att])
-    att = LayerNormalization()(att)
-    fwd = Dense(s.shape[-1])(att)
-    fwd = Dense(s.shape[-1])(fwd)
-    fwd = Add()([fwd, att])
-    fwd = LayerNormalization()(fwd)
-    att = rawEEGAttention(axis=-1, name='att3')(fwd)
-    att = Add()([s, att])
-    att = LayerNormalization()(att)
-    fwd = Dense(s.shape[-1])(att)
-    fwd = Dense(s.shape[-1])(fwd)
-    fwd = Add()([fwd, att])
-    fwd = LayerNormalization()(fwd)
-    flatten = Flatten(name='flatten')(fwd)
-    dense = Dense(nClasses, kernel_constraint=max_norm(norm_rate))(flatten)
-    _output_s = Activation('softmax', name='softmax')(dense)
+def get_custom_objects(name):
+    if name in ('TSGLEEGNet'):
+        return {'TSG': TSG}
+    
+    return {}
 
-    return Model(inputs=_input_s, outputs=_output_s)
+
+def get_compile(model: tf.keras.Model,
+                optimizer=tf.keras.optimizers.Adam,
+                lrate=1e-3,
+                loss='sparse_categorical_crossentropy',
+                metrics=['accuracy']):
+    model.compile(optimizer=optimizer(lrate), loss=loss, metrics=metrics)
+    
+    return model
 
 
 def TSGLEEGNet(nClasses,
@@ -146,7 +106,7 @@ def TSGLEEGNet(nClasses,
                name='fs')(s)
     s = BatchNormalization(axis=-1)(s)
     s = Activation('elu')(s)
-    s = AveragePooling2D((1, 8))(s)
+    # s = AveragePooling2D((1, 8))(s)
     s = dropoutType(dropoutRate)(s)
     flatten = Flatten(name='flatten')(s)
     dense = Dense(
@@ -155,7 +115,7 @@ def TSGLEEGNet(nClasses,
     )(flatten)
     _output_s = Activation('softmax', name='softmax')(dense)
 
-    return Model(inputs=_input_s, outputs=_output_s)
+    return Model(inputs=_input_s, outputs=_output_s, name='TSGLEEGNet')
 
 
 def EEGNet(nb_classes,
@@ -170,7 +130,7 @@ def EEGNet(nb_classes,
            norm_rate=0.25,
            dropoutType='Dropout'):
     """ Keras Implementation of EEGNet
-    http://iopscience.iop.org/article/10.1088/1741-2552/aace8c/meta
+    http://iopscience.iop.org/article/1dropout_rate088/1741-2552/aace8c/meta
 
     Note that this implements the newest version of EEGNet and NOT the earlier
     version (version v1 and v2 on arxiv). We strongly recommend using this
@@ -272,7 +232,7 @@ def EEGNet(nb_classes,
                   kernel_constraint=max_norm(norm_rate))(flatten)
     softmax = Activation('softmax', name='softmax')(dense)
 
-    return Model(inputs=input1, outputs=softmax)
+    return Model(inputs=input1, outputs=softmax, name='EEGNet')
 
 
 def DeepConvNet(nb_classes, Chans=64, Samples=256, dropoutRate=0.5):
@@ -337,7 +297,7 @@ def DeepConvNet(nb_classes, Chans=64, Samples=256, dropoutRate=0.5):
     dense = Dense(nb_classes, kernel_constraint=max_norm(0.5))(flatten)
     softmax = Activation('softmax')(dense)
 
-    return Model(inputs=input_main, outputs=softmax)
+    return Model(inputs=input_main, outputs=softmax, name='DeepConvNet')
 
 
 # need these for ShallowConvNet
@@ -391,7 +351,7 @@ def ShallowConvNet(nb_classes, Chans=64, Samples=128, dropoutRate=0.5):
     dense = Dense(nb_classes, kernel_constraint=max_norm(0.5))(flatten)
     softmax = Activation('softmax')(dense)
 
-    return Model(inputs=input_main, outputs=softmax)
+    return Model(inputs=input_main, outputs=softmax, name='ShallowConvNet')
 
 
 # Multi-branch 3D CNN from `A Multi-Branch 3D Convolutional Neural Network

@@ -1,12 +1,15 @@
 # -*- coding:utf-8 -*-
 
 import os
-import re
+import logging
 import math as m
 import numpy as np
 import scipy.io as sio
 import scipy.signal as signal
-import matplotlib.pyplot as plt
+from typing import AnyStr
+
+# DON'T DELETE THIS! This is used by other modules.
+from sklearn.model_selection._split import check_random_state
 
 
 def cart2sph(x, y, z):
@@ -73,6 +76,10 @@ def azim_proj(pos):
     '''
     [r, elev, az] = cart2sph(pos[0], pos[1], pos[2])
     return pol2cart(az, m.pi / 2 - elev)
+
+
+def riemannian_dis(pos, center):
+    pass
 
 
 def load_data(datafile, label=True):
@@ -335,14 +342,14 @@ def unlinearDetrend(data, axis=-1):
 
 
 def normalization(data, axis=-1):
-    '''max-min'''
+    '''max-min -> y belongs to [0, 1]'''
     _range = np.nanmax(data, axis=axis, keepdims=True) - np.nanmin(
         data, axis=axis, keepdims=True)
     return (data - np.nanmin(data, axis=axis, keepdims=True)) / _range
 
 
 def standardization(data, axis=-1):
-    '''z-score'''
+    '''z-score -> mu=0, sigma=1'''
     mu = np.nanmean(data, axis=axis, keepdims=True)
     sigma = np.nanstd(data, axis=axis, keepdims=True)
     return (data - mu) / sigma
@@ -362,7 +369,17 @@ def confusionMatrix(predict, groundTruth):
 
 
 def computeKappa(predict, groundTruth, probpred=False):
-    '''Compute kappa using prediction and ground truth'''
+    '''
+    Compute kappa using prediction and ground truth.
+
+    ***Deprecated***
+    
+    We have module `tensorflow-addons` to compute kappa.
+    But this function will be retained.
+    '''
+    logging.warning('computeKappa: Deprecated: We have module '
+                    '`tensorflow-addons`to compute kappa. But '
+                    'this function will be retained.')
     if probpred:
         predict = np.argmax(predict, axis=1)
     predict = np.squeeze(predict)
@@ -373,11 +390,12 @@ def computeKappa(predict, groundTruth, probpred=False):
     return (p0 - pe) / (1 - pe)
 
 
-def walk_files(path):
+def walk_files(path, emt: AnyStr):
     file_list = []
-    for root, dirs, files in os.walk(path):
+    for root, _, files in os.walk(path):
         for file in files:
-            if file.split('.')[-1] == 'h5':
+            file: AnyStr
+            if file.split('.')[-1] == emt:
                 file_path = os.path.join(root, file)
                 file_list.append(file_path)
     return file_list

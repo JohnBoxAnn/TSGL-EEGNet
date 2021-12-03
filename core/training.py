@@ -3,138 +3,24 @@
 import os
 import gc
 import sys
-import math
-import copy
 import time
-import logging
 import itertools
 import numpy as np
-from numpy.core.numeric import cross
+from numpy.lib.arraysetops import isin
 import tensorflow as tf
-import matplotlib.pyplot as plt
+from typing import ClassVar, Callable
+from tensorflow.python.keras.api._v2.keras.models import load_model
 from tensorflow.python.keras.api._v2.keras import backend as K
 
-from core.models import EEGNet, TSGLEEGNet, ShallowConvNet, DeepConvNet, MB3DCNN, EEGAttentionNet
-from core.splits import StratifiedKFold
-from core.callbacks import MyModelCheckpoint, EarlyStopping
-from core.utils import standardization, computeKappa
+from core.dataloaders import BaseDataloader as _BaseDataloader
+from core.splits import _BaseCrossValidator
+from core.generators import BaseGenerator as _BaseGenerator, get_steps, EmbdGenerator
+from core.callbacks import StatModelCheckpoint, StatEarlyStopping
+from core.models import get_custom_objects
+from core.utils import check_random_state, walk_files
+from core.initializers import EmbeddingInit
 
 _console = sys.stdout
-
-
-def create_EEGAttentionNet(nClasses,
-                           Samples,
-                           Chans=22,
-                           Colors=1,
-                           F=9,
-                           D=4,
-                           kernLength=64,
-                           optimizer=tf.keras.optimizers.Adam,
-                           lrate=1e-3,
-                           loss='sparse_categorical_crossentropy',
-                           metrics=['accuracy'],
-                           summary=True):
-    model = EEGAttentionNet(nClasses,
-                            Chans=Chans,
-                            Colors=Colors,
-                            Samples=Samples,
-                            kernLength=kernLength,
-                            F1=F,
-                            D=D)
-    model.compile(optimizer=optimizer(lrate), loss=loss, metrics=metrics)
-    if summary:
-        model.summary()
-        # export graph of the model
-        # tf.keras.utils.plot_model(model, 'EEGNet.png', show_shapes=True)
-    return model
-
-
-def create_MB3DCNN(nClasses,
-                   H,
-                   W,
-                   Samples,
-                   optimizer=tf.keras.optimizers.Adam,
-                   lrate=1e-3,
-                   loss='sparse_categorical_crossentropy',
-                   metrics=['accuracy'],
-                   summary=True):
-    model = MB3DCNN(nClasses, H=H, W=W, Samples=Samples)
-    model.compile(optimizer=optimizer(lrate), loss=loss, metrics=metrics)
-    if summary:
-        model.summary()
-        # export graph of the model
-        # tf.keras.utils.plot_model(model, 'MB3DCNN.png', show_shapes=True)
-    return model
-
-
-def create_EEGNet(nClasses,
-                  Samples,
-                  Chans=22,
-                  F=9,
-                  D=4,
-                  Ns=4,
-                  kernLength=64,
-                  FSLength=16,
-                  dropoutRate=0.5,
-                  optimizer=tf.keras.optimizers.Adam,
-                  lrate=1e-3,
-                  loss='sparse_categorical_crossentropy',
-                  metrics=['accuracy'],
-                  summary=True):
-    model = EEGNet(nClasses,
-                   Chans=Chans,
-                   Samples=Samples,
-                   kernLength=kernLength,
-                   FSLength=FSLength,
-                   dropoutRate=dropoutRate,
-                   F1=F,
-                   D=D,
-                   F2=nClasses * 2 * Ns)
-    model.compile(optimizer=optimizer(lrate), loss=loss, metrics=metrics)
-    if summary:
-        model.summary()
-        # export graph of the model
-        # tf.keras.utils.plot_model(model, 'EEGNet.png', show_shapes=True)
-    return model
-
-
-def create_TSGLEEGNet(nClasses,
-                      Samples,
-                      Chans=22,
-                      Colors=1,
-                      F=9,
-                      D=4,
-                      Ns=4,
-                      kernLength=64,
-                      FSLength=16,
-                      dropoutRate=0.5,
-                      l1=1e-4,
-                      l21=1e-4,
-                      tl1=1e-5,
-                      optimizer=tf.keras.optimizers.Adam,
-                      lrate=1e-3,
-                      loss='sparse_categorical_crossentropy',
-                      metrics=['accuracy'],
-                      summary=True):
-    model = TSGLEEGNet(nClasses,
-                       Chans=Chans,
-                       Samples=Samples,
-                       Colors=Colors,
-                       kernLength=kernLength,
-                       FSLength=FSLength,
-                       dropoutRate=dropoutRate,
-                       F1=F,
-                       D=D,
-                       F2=nClasses * 2 * Ns,
-                       l1=l1,
-                       l21=l21,
-                       tl1=tl1)
-    model.compile(optimizer=optimizer(lrate), loss=loss, metrics=metrics)
-    if summary:
-        model.summary()
-        # export graph of the model
-        # tf.keras.utils.plot_model(model, 'rawEEGConvNet.png', show_shapes=True)
-    return model
 
 
 class crossValidate(object):
@@ -147,18 +33,21 @@ class crossValidate(object):
     classes as `splitMethod`. 
 
     This class has implemented a magic method `__call__()` wrapping `call()`, for which
-     it can be used like a function.
+    it can be used like a Callable object.
 
     Parameters
     ----------
     ```txt
-    built_fn        : function, Create Training model which need to cross-validate.
-                      Please using string `create_` at the begining of function name, 
-                      like `create_modelname`.
-    dataGent        : class, Generate data for @built_fn, shapes (n_trails, ...). 
-                      It should discriminate data and label.
+    built_fn        : Callable, Create Training model which need to cross-validate.
+                      Please using string 'create_' at the begining of function name, 
+                      like 'create_modelname'. 
+                      Returns a `tf.keras.Model`.
+    dataLoader      : ClassVar, Loader data from files. 
+                      Returns (x_train, y_trian, x_test, y_test).
+    dataGent        : ClassVar, Generate data for @built_fn, shapes (n_trails, ...). 
+                      Yields (x, y).
                       More details see core.generators.
-    splitMethod     : class, Support split methods from module sklearn.model_selection.
+    splitMethod     : ClassVar, Support split methods from module sklearn.model_selection.
     kFold           : int, Number of K-fold.
     shuffle         : bool, Optional Whether to shuffle each class's samples before 
                       splitting into batches, default = False.
@@ -173,7 +62,7 @@ class crossValidate(object):
     cpt             : float, cropping sencond, optional, only available when `winLength`
                       is not specified.
     step            : int, cropping step, default = 4.
-    standardizing   : bool, Switch of standardizing data. Default = True.
+    norm_mode       : string, None, 'maxmin' or 'z-score'. Default = 'maxmin'.
     batch_size      : int, Batch size.
     epochs          : int, Training epochs.
     patience        : int, Early stopping patience.
@@ -201,7 +90,7 @@ class crossValidate(object):
         ...
         return keras_model
 
-    class dataGenerator:
+    class dataLoader:
         def __init__(self, *a, beg=0, end=4, srate=250, **kw):
             ...
 
@@ -213,18 +102,32 @@ class crossValidate(object):
                 ...
                 return data
         ...
+
+    class dataGenerator:
+        def __init__(self, *a, beg=0, end=4, srate=250, **kw):
+            ...
+
+        def __call__(self, x, y, mode):
+            x, y = self._process_data(x, y)
+            mode = str(mode, encoding='utf-8')
+            return self._yield_data(x, y, mode)
+        
+        def _yield_data(self, x, y, mode):
+            ...
+        ...
     ...
-    avg_acc = crossValidate(
-                create_model, 
-                dataGenerator, 
-                beg=0,
-                end=4,
-                srate=250,
-                splitMethod=StratifiedKFold,
-                kFold=10, 
-                subs=range(1, 10), 
-                *a, 
-                **kw)(*args, **kwargs)
+    avg_acc, avg_kappa = crossValidate(
+        create_model, 
+        dataLoader=dataLoader，
+        dataGenerator=dataGenerator, 
+        splitMethod=StratifiedKFold,
+        beg=0,
+        end=4,
+        srate=250,
+        kFold=10, 
+        subs=range(1, 10), 
+        *a, 
+        **kw)(*args, **kwargs)
     ```
 
     Note
@@ -232,9 +135,10 @@ class crossValidate(object):
     More details to see the codes.
     '''
     def __init__(self,
-                 built_fn,
-                 dataGent,
-                 splitMethod=StratifiedKFold,
+                 built_fn: Callable[..., tf.keras.Model] = None,
+                 dataLoader: _BaseDataloader = None,
+                 splitMethod: _BaseCrossValidator = None,
+                 dataGent: _BaseGenerator = None,
                  traindata_filepath=None,
                  testdata_filepath=None,
                  datadir=None,
@@ -249,7 +153,8 @@ class crossValidate(object):
                  winLength=None,
                  cpt=None,
                  step=25,
-                 standardizing=True,
+                 max_crop=None,
+                 norm_mode='maxmin',
                  batch_size=10,
                  epochs=300,
                  patience=100,
@@ -259,11 +164,6 @@ class crossValidate(object):
                  *args,
                  **kwargs):
         self.built_fn = built_fn
-        self.dataGent = dataGent(beg=beg,
-                                 end=end,
-                                 srate=srate,
-                                 *args,
-                                 **kwargs)
         self.beg = beg
         self.end = end
         self.srate = srate
@@ -279,7 +179,8 @@ class crossValidate(object):
         self.winLength = winLength
         self.cpt = cpt
         self.step = step
-        self.standardizing = standardizing
+        self.max_crop = max_crop
+        self.norm_mode = norm_mode
         self.batch_size = batch_size
         self.epochs = epochs
         self.patience = patience
@@ -288,7 +189,6 @@ class crossValidate(object):
         self.reinit = reinit
         self.args = args
         self.kwargs = kwargs
-        self.Samples = math.ceil(self.end * self.srate - self.beg * self.srate)
         self._check_params()
 
         if self.datadir:
@@ -299,49 +199,47 @@ class crossValidate(object):
         else:
             self.dn = ''
 
-        self.modelstr = built_fn.__name__[7:]
-        if self.splitMethod.__name__ == 'AllTrain':
-            self.validation_name = 'Average Validation'
+        if not isinstance(dataLoader, _BaseDataloader):
+            self.dataLoader: _BaseDataloader = dataLoader(
+                beg=self.beg,
+                end=self.end,
+                srate=self.srate,
+                traindata_filepath=self.traindata_filepath,
+                testdata_filepath=self.testdata_filepath,
+                datadir=self.datadir,
+                dn=self.dn,
+                norm_mode=self.norm_mode)
         else:
-            self.validation_name = 'Cross Validation'
-        self._new_fold = True
-        self._last_batch = False
+            self.dataLoader = dataLoader
 
-        self._readed = False
-        self.X1 = None
-        self.Y1 = None
-        self.X2 = None
-        self.Y2 = None
+        if not isinstance(dataGent, _BaseGenerator):
+            self.dataGent: _BaseGenerator = dataGent(
+                batch_size=self.batch_size,
+                epochs=self.epochs,
+                beg=self.beg,
+                end=self.end,
+                srate=self.srate,
+                cropping=self.cropping,
+                winLength=self.winLength,
+                cpt=self.cpt,
+                step=self.step,
+                max_crop=self.max_crop)
+        else:
+            self.dataGent = dataGent
+        self.Samples = self.dataGent.winLength
+
+        if built_fn:
+            self.modelstr = built_fn.__name__[7:]
+        if self.splitMethod:
+            if self.splitMethod.__name__ == 'AllTrain':
+                self.validation_name = 'Average Validation'
+            else:
+                self.validation_name = 'Cross Validation'
 
         if not os.path.exists('model'):
             os.makedirs('model')
         if not os.path.exists('result'):
             os.makedirs('result')
-
-        # cropped training
-        if self.winLength:
-            if not isinstance(self.winLength, int):
-                raise TypeError('`winLength` must be passed as int.')
-            if self.winLength > (self.end - self.beg) * self.srate:
-                raise ValueError(
-                    '`winLength` must less than or equal (`end` - '
-                    '`beg`) * `srate`.')
-        if self.cpt and not self.winLength:
-            if (isinstance(self.cpt, float) or isinstance(self.cpt, int)):
-                if self.cpt <= self.end - self.beg:
-                    self.winLength = self.cpt * self.srate
-                else:
-                    raise ValueError(
-                        '`cpt` must less than or equal `end` - `beg`.')
-            else:
-                raise TypeError('`cpt` must be passed as int or float.')
-        if not self.winLength:
-            self.winLength = 2 * self.srate
-        if self.step:
-            if not isinstance(self.step, int):
-                raise TypeError('`step` must be passed as int.')
-        else:
-            self.step = 4
 
     def call(self, *args, **kwargs):
         initfile = os.path.join('.', 'CV_initweight.h5')
@@ -355,153 +253,157 @@ class crossValidate(object):
         if not os.path.exists(os.path.join('result', dirname)):
             os.mkdir(os.path.join('result', dirname))
 
-        if self.cropping:
-            gent = self._gent_cropped_data
-            self.Samples -= self.winLength
-        else:
-            gent = self._gent_data
-
         if not self.reinit:
-            model = self.built_fn(*args, **kwargs, Samples=self.Samples)
-            model.save_weights(initfile)
+            kwas = self._check_builtfn_params(**kwargs)
+            model = self.built_fn(*args, **kwas, Samples=self.Samples)
+            model.save(initfile)
 
-        earlystopping = EarlyStopping(monitor='val_loss',
-                                      min_delta=0,
-                                      patience=self.patience,
-                                      verbose=0,
-                                      mode='auto')
-
-        filename = ''
-        for key in kwargs.keys():
-            if key in ['l1', 'l21', 'tl1']:
-                filename += '{0:s}({1:.8f})_'.format(key, kwargs[key])
-            else:
-                filename += '{0:s}({1:0>2d})_'.format(key, kwargs[key])
+        earlystopping = StatEarlyStopping(monitor='val_loss',
+                                          min_delta=0,
+                                          patience=self.patience,
+                                          verbose=0,
+                                          mode='auto',
+                                          statistic_best=True,
+                                          p=0.05)
 
         avg_acci = []
         avg_kappai = []
-        win_subs_list = []
-        for i in self.subs:
+        for self.subject in self.subs:
+            k = 0
             accik = []
             kappaik = []
-            k = 0  # count kFolds
-            # cropped training
-            t = 0  # record model's saving time
-            c = 0  # count windows
-            win = 0  # selected windows
-            win_list = []  # selected windows list
-            for data in gent(subject=i):
-                if self._new_fold:  # new fold for cropped training
-                    self._new_fold = False
-                    t = 0
-                    c = 0
-
-                    if self.reinit:
-                        model = self.built_fn(*args,
-                                              **kwargs,
-                                              Samples=self.Samples)
-
-                    k += 1
-                    filepath = os.path.join(
-                        'result', dirname,
-                        filename + '{:s}.txt'.format(self.modelstr))
-                    with open(filepath, 'w+') as f:
-                        sys.stdout = f
-                        print(('{0:s} {1:d}-fold ' + self.validation_name +
-                               ' Accuracy').format(self.modelstr, self.kFold))
-                        print('Subject {:0>2d} fold {:0>2d} in processing'.
-                              format(i, k))
-                        sys.stdout = _console
-                        f.seek(0, 0)
-                        for line in f.readlines():
-                            print(line)
-                        f.close()
-
-                    filepath = os.path.join(
-                        'model', dirname, filename + self.dn +
-                        '0{0:d}T_{1:s}({2:d}).h5'.format(i, self.modelstr, k))
-                    checkpointer = MyModelCheckpoint(filepath=filepath,
-                                                     verbose=1,
-                                                     save_best_only=True,
-                                                     statistic_best=True,
-                                                     p=0.05)
-                    history = {}
+            rawdata = self.get_data()
+            for data in self.get_split(rawdata):
+                k += 1
+                if self.reinit:
+                    kwas = self._check_builtfn_params(**kwargs, data=data)
+                    summary = False
+                    if k == 1:
+                        summary = True
+                    model = self.built_fn(*args,
+                                          **kwas,
+                                          Samples=self.Samples,
+                                          summary=summary)
                 else:
-                    c += 1
+                    model = load_model(initfile,
+                                       custom_objects=get_custom_objects(
+                                           self.modelstr))
 
-                # TODO: fit(), evaluate() with tf.data.Dataset, then `self._new_fold`
-                #       and `self._last_batch` will be DEPRECATED.
-                history = dict(
-                    list(history.items()) + list(
-                        model.fit(x=data['x_train'],
-                                  y=data['y_train'],
-                                  batch_size=self.batch_size,
-                                  epochs=self.epochs,
-                                  callbacks=[checkpointer, earlystopping],
-                                  verbose=self.verbose,
-                                  validation_data=[
-                                      data['x_val'], data['y_val']
-                                  ]).history.items()))
+                filename = ''
+                for key in kwargs.keys():
+                    if key in ['l1', 'l21', 'tl1']:
+                        filename += '{0:s}({1:.8f})_'.format(key, kwargs[key])
+                    elif isinstance(kwargs[key], int):
+                        filename += '{0:s}({1:0>2d})_'.format(key, kwargs[key])
 
-                if self.cropping:
-                    if not t == os.path.getmtime(checkpointer._filepath):
-                        t = os.path.getmtime(checkpointer._filepath)
-                        win = c
+                filepath = os.path.join(
+                    'result', dirname, filename +
+                    '{:0>2d}_{:s}.txt'.format(self.subject, self.modelstr))
+                with open(filepath, 'w+') as f:
+                    sys.stdout = f
+                    print(('{0:s} {1:d}-fold ' + self.validation_name +
+                           ' Accuracy').format(self.modelstr, self.kFold))
+                    print('Subject {:0>2d} fold {:0>2d} in processing'.format(
+                        self.subject, k))
+                    sys.stdout = _console
+                    f.seek(0, 0)
+                    for line in f.readlines():
+                        print(line)
+                    f.close()
 
-                # tf.keras.models.Model.fit()
-                # tf.keras.models.Model.evaluate()
-                # tf.data.Dataset.from_generator()
+                filepath = os.path.join(
+                    'model', dirname,
+                    filename + self.dn + '0{0:d}T_{1:s}({2:d}).h5'.format(
+                        self.subject, self.modelstr, k))
+                checkpointer = StatModelCheckpoint(filepath=filepath,
+                                                   verbose=1,
+                                                   save_best_only=True,
+                                                   statistic_best=True,
+                                                   p=0.05)
 
-                # load the best model for cropped training or evaluating its accuracy
+                # train model
+                history = model.fit(
+                    x=self.get_dataset(data['x_train'], data['y_train']),
+                    epochs=self.epochs,
+                    callbacks=[checkpointer, earlystopping],
+                    verbose=self.verbose,
+                    validation_data=self.get_dataset(data['x_val'],
+                                                     data['y_val']),
+                    steps_per_epoch=get_steps(self.dataGent, data['x_train'],
+                                              data['y_train'],
+                                              self.batch_size),
+                    validation_steps=get_steps(self.dataGent, data['x_val'],
+                                               data['y_val'], self.batch_size),
+                ).history
+
+                # load the best model to evaluate
                 model.load_weights(filepath)
 
-                if self._last_batch:  # the last batch for cropped training
-                    self._last_batch = False
+                # test model
+                loss, acc, kappa = model.evaluate(
+                    self.get_dataset(data['x_test'], data['y_test']),
+                    verbose=self.verbose,
+                    steps=get_steps(self.dataGent, data['x_test'],
+                                    data['y_test'], self.batch_size),
+                )
 
-                    if self.cropping:
-                        win_list.append(win)
-                        x_test = data['x_test'][:, :, win *
-                                                self.step:win * self.step +
-                                                self.Samples, :]
-                        pd = model.predict(x_test, verbose=0)
-                        pred = np.argmax(pd, axis=1)
-                        acc = np.mean(
-                            np.squeeze(pred) == np.squeeze(data['y_test']))
-                        kappa = computeKappa(pred, data['y_test'])
-                        print(
-                            'win: {:0>2d}\nacc: {:.2%}\nkappa: {:.4f}'.format(
-                                win, acc, kappa))
-                    else:
-                        loss, acc = model.evaluate(data['x_test'],
-                                                   data['y_test'],
-                                                   batch_size=self.batch_size,
-                                                   verbose=self.verbose)
-                        _pred = model.predict(data['x_test'],
-                                              batch_size=self.batch_size,
-                                              verbose=self.verbose)
-                        pred = np.argmax(_pred, axis=1)
-                        kappa = computeKappa(pred, data['y_test'])
+                # TODO: better prediction for cropped training
+                # pred = model.predict(
+                #     self.get_dataset(data['x_test'], data['y_test']),
+                #     verbose=self.verbose,
+                #     steps=math.ceil(len(data['y_test']) / self.batch_size)
+                #     * self.dataGent.pieces,
+                # )
+                # pred = np.argmax(pred, axis=0)
+                # pred = np.reshape(
+                #     pred,
+                #     (math.ceil(len(data['y_test']) / self.batch_size),
+                #      self.dataGent.pieces))
 
-                    # save the train history
-                    filepath = filepath[:-3] + '.npy'
-                    np.save(filepath, history)
+                # save the train history
+                filepath = filepath[:-3] + '.npy'
+                np.save(filepath, history)
 
-                    # reset model's weights to train a new one next fold
-                    if os.path.exists(initfile) and not self.reinit:
-                        model.reset_states()
-                        model.load_weights(initfile)
+                # reset model's weights to train a new one next fold
+                if os.path.exists(initfile) and not self.reinit:
+                    model.reset_states()
+                    model.load_weights(initfile)
 
-                    if self.reinit:
-                        K.clear_session()
-                        gc.collect()
+                if self.reinit:
+                    K.clear_session()
+                    gc.collect()
 
-                    accik.append(acc)
-                    kappaik.append(kappa)
+                accik.append(acc)
+                kappaik.append(kappa)
             avg_acci.append(np.average(np.array(accik)))
             avg_kappai.append(np.average(np.array(kappaik)))
-            win_subs_list.append(win_list)
-            print(win_list)
-            self._readed = False
+            self.dataLoader.setReaded(False)
+            del rawdata, data
+
+            filename = ''
+            for key in kwargs.keys():
+                if key in ['l1', 'l21', 'tl1']:
+                    filename += '{0:s}({1:.8f})_'.format(key, kwargs[key])
+                elif isinstance(kwargs[key], int):
+                    filename += '{0:s}({1:0>2d})_'.format(key, kwargs[key])
+
+            filepath = os.path.join(
+                'result', dirname, filename +
+                '{:0>2d}_{:s}.txt'.format(self.subject, self.modelstr))
+            with open(filepath, 'w+') as f:
+                sys.stdout = f
+                print(('{0:s} {1:d}-fold ' + self.validation_name +
+                       ' Accuracy').format(self.modelstr, self.kFold))
+                for ik in range(self.kFold):
+                    print('Fold {:0>2d}: {:.2%} ({:.4f})'.format(
+                        ik + 1, accik[ik], kappaik[ik]))
+                print('Average   : {0:.2%} ({1:.4f})'.format(
+                    avg_acci[-1], avg_kappai[-1]))
+                sys.stdout = _console
+                f.seek(0, 0)
+                for line in f.readlines():
+                    print(line)
+                f.close()
         del model
         avg_acc = np.average(np.array(avg_acci))
         avg_kappa = np.average(np.array(avg_kappai))
@@ -516,13 +418,7 @@ class crossValidate(object):
                    ' Accuracy (kappa)').format(self.modelstr, self.kFold))
             for i in range(len(self.subs)):
                 print('Subject {0:0>2d}: {1:.2%} ({2:.4f})'.format(
-                    self.subs[i], avg_acci[i], avg_kappai[i]),
-                      end='')
-                if self.cropping:
-                    print(', Window:{:0>2d}'.format(win_subs_list[i][np.argmax(
-                        np.bincount(win_subs_list[i]))]))
-                else:
-                    print()
+                    self.subs[i], avg_acci[i], avg_kappai[i]))
             print('Average   : {0:.2%} ({1:.4f})'.format(avg_acc, avg_kappa))
             sys.stdout = _console
             f.seek(0, 0)
@@ -542,8 +438,9 @@ class crossValidate(object):
     def getConfig(self):
         config = {
             'built_fn': self.built_fn,
-            'dataGent': self.dataGent,
-            'splitMethod': self.splitMethod,
+            'dataLoader': self.dataLoader.__class__,
+            'splitMethod': self.splitMethod.__class__,
+            'dataGent': self.dataGent.__class__,
             'traindata_filepath': self.traindata_filepath,
             'testdata_filepath': self.testdata_filepath,
             'datadir': self.datadir,
@@ -557,7 +454,8 @@ class crossValidate(object):
             'cropping': self.cropping,
             'winLength': self.winLength,
             'step': self.step,
-            'standardizing': self.standardizing,
+            'max_crop': self.max_crop,
+            'norm_mode': self.norm_mode,
             'batch_size': self.batch_size,
             'epochs': self.epochs,
             'patience': self.patience,
@@ -570,9 +468,10 @@ class crossValidate(object):
         return config
 
     def setConfig(self,
-                  built_fn,
-                  dataGent,
-                  splitMethod=StratifiedKFold,
+                  built_fn: Callable[..., tf.keras.Model] = None,
+                  dataLoader: _BaseDataloader = None,
+                  splitMethod: _BaseCrossValidator = None,
+                  dataGent: _BaseGenerator = None,
                   traindata_filepath=None,
                   testdata_filepath=None,
                   datadir=None,
@@ -587,7 +486,8 @@ class crossValidate(object):
                   winLength=None,
                   cpt=None,
                   step=25,
-                  standardizing=True,
+                  max_crop=None,
+                  norm_mode='maxmin',
                   batch_size=10,
                   epochs=300,
                   patience=100,
@@ -597,11 +497,6 @@ class crossValidate(object):
                   *args,
                   **kwargs):
         self.built_fn = built_fn
-        self.dataGent = dataGent(beg=beg,
-                                 end=end,
-                                 srate=srate,
-                                 *args,
-                                 **kwargs)
         self.beg = beg
         self.end = end
         self.srate = srate
@@ -617,7 +512,8 @@ class crossValidate(object):
         self.winLength = winLength
         self.cpt = cpt
         self.step = step
-        self.standardizing = standardizing
+        self.max_crop = max_crop
+        self.norm_mode = norm_mode
         self.batch_size = batch_size
         self.epochs = epochs
         self.patience = patience
@@ -626,7 +522,6 @@ class crossValidate(object):
         self.reinit = reinit
         self.args = args
         self.kwargs = kwargs
-        self.Samples = math.ceil(self.end * self.srate - self.beg * self.srate)
         self._check_params()
 
         if self.datadir:
@@ -634,131 +529,52 @@ class crossValidate(object):
                 if files:
                     self.dn = files[0][0]
                     break
-
-        self.modelstr = built_fn.__name__[7:]
-        if self.splitMethod.__name__ == 'AllTrain':
-            self.validation_name = 'Average Validation'
         else:
-            self.validation_name = 'Cross Validation'
-        self._new_fold = True
-        self._last_batch = False
+            self.dn = ''
 
-        self._readed = False
-        self.X1 = None
-        self.Y1 = None
-        self.X2 = None
-        self.Y2 = None
+        if not isinstance(dataLoader, _BaseDataloader):
+            self.dataLoader: _BaseDataloader = dataLoader(
+                beg=self.beg,
+                end=self.end,
+                srate=self.srate,
+                traindata_filepath=self.traindata_filepath,
+                testdata_filepath=self.testdata_filepath,
+                datadir=self.datadir,
+                dn=self.dn,
+                norm_mode=self.norm_mode)
+        else:
+            self.dataLoader = dataLoader
+
+        if not isinstance(dataGent, _BaseGenerator):
+            self.dataGent: _BaseGenerator = dataGent(
+                batch_size=self.batch_size,
+                epochs=self.epochs,
+                beg=self.beg,
+                end=self.end,
+                srate=self.srate,
+                cropping=self.cropping,
+                winLength=self.winLength,
+                cpt=self.cpt,
+                step=self.step,
+                max_crop=self.max_crop)
+        else:
+            self.dataGent = dataGent
+        self.Samples = self.dataGent.winLength
+
+        if built_fn:
+            self.modelstr = built_fn.__name__[7:]
+        if self.splitMethod:
+            if self.splitMethod.__name__ == 'AllTrain':
+                self.validation_name = 'Average Validation'
+            else:
+                self.validation_name = 'Cross Validation'
 
         if not os.path.exists('model'):
             os.makedirs('model')
         if not os.path.exists('result'):
             os.makedirs('result')
 
-        # cropped training
-        if self.winLength:
-            if not isinstance(self.winLength, int):
-                raise TypeError('`winLength` must be passed as int.')
-            if self.winLength > (self.end - self.beg) * self.srate:
-                raise ValueError(
-                    '`winLength` must less than or equal (`end` - '
-                    '`beg`) * `srate`.')
-        if self.cpt and not self.winLength:
-            if (isinstance(self.cpt, float) or isinstance(self.cpt, int)):
-                if self.cpt <= self.end - self.beg:
-                    self.winLength = self.cpt * self.srate
-                else:
-                    raise ValueError(
-                        '`cpt` must less than or equal `end` - `beg`.')
-            else:
-                raise TypeError('`cpt` must be passed as int or float.')
-        if not self.winLength:
-            self.winLength = 2 * self.srate
-        if self.step:
-            if not isinstance(self.step, int):
-                raise TypeError('`step` must be passed as int.')
-        else:
-            self.step = 4
-
-    @staticmethod
-    def _standardize(data: dict, trialaxis=0):
-        '''Standardizing (z-score) on each trial, supports np.nan numbers'''
-        # suppose every trials are independent to each other
-        meta = ['x_train', 'x_test', 'x_val']
-
-        # to prevent different objects be the same one
-        data = copy.deepcopy(data)
-
-        for s in meta:
-            if s in data and not data[s] is None:
-                _len = len(data[s].shape)
-                if _len > 1:
-                    axis = list(range(_len))
-                    axis.pop(trialaxis)
-                    axis = tuple(axis)
-                else:
-                    axis = -1
-                # z-score on trials
-                data[s] = standardization(data[s], axis=axis)
-
-        return data
-
-    def _read_data(self, subject, mode):
-        '''
-        Read data from dataGent.
-
-        Parameters
-        ----------
-        ```txt
-        subject : int, Identifier of subject.
-        mode    : str, One of 'train' and 'test'.
-        ```
-
-        Yields
-        ------
-        ```txt
-        data    : tuple, (x, y).
-        ```
-        '''
-        meta = ['train', 'test']
-        if not isinstance(mode, str):
-            raise TypeError('`mode` must be passed as string.')
-        if not mode in meta:
-            raise ValueError('`mode` must be one of \'train\' and \'test\'.')
-        if mode == 'test':
-            if not self.testdata_filepath:
-                self.testdata_filepath = os.path.join(
-                    self.datadir, 'Test',
-                    self.dn + '0' + str(subject) + 'E.mat')
-                yield self.dataGent(self.testdata_filepath)
-                self.testdata_filepath = None
-            else:
-                yield self.dataGent(self.testdata_filepath)
-        else:
-            if not self.traindata_filepath:
-                self.traindata_filepath = os.path.join(
-                    self.datadir, 'Train',
-                    self.dn + '0' + str(subject) + 'T.mat')
-                yield self.dataGent(self.traindata_filepath)
-                self.traindata_filepath = None
-            else:
-                yield self.dataGent(self.traindata_filepath)
-
-    def _gent_data(self, subject):
-        '''
-        Generate (data, label) from dataGent.
-
-        Parameters
-        ----------
-        ```txt
-        subject     : int, Identifier of subject.
-        ```
-
-        Yields
-        ------
-        ```txt
-        data        : dict, Includes train, val and test data.
-        ```
-        '''
+    def get_data(self):
         data = {
             'x_train': None,
             'y_train': None,
@@ -767,115 +583,45 @@ class crossValidate(object):
             'x_test': None,
             'y_test': None
         }
-        if not self._readed:
-            # for once
-            for (self.X1, self.Y1) in self._read_data(subject=subject,
-                                                      mode='test'):
-                pass
-            for (self.X2, self.Y2) in self._read_data(subject=subject,
-                                                      mode='train'):
-                self._readed = True
-        data['x_test'] = self.X1
-        data['y_test'] = self.Y1
-        # for multiple times
-        for (x1, y1), (x2, y2) in self._spilt(self.X2, self.Y2):
+        data['x_train'], data['y_train'], data['x_test'], data[
+            'y_test'] = self.dataLoader(self.subject)
+        return data
+
+    def get_split(self, data, **kwargs):
+        groups = None
+        if 'groups' in kwargs:
+            groups = kwargs['groups']
+
+        for (x1, y1), (x2, y2) in self._split(data['x_train'],
+                                              data['y_train'],
+                                              groups=groups):
+            if x2 is None:
+                x2, y2 = data['x_test'], data['y_test']
             data['x_train'] = x1
             data['y_train'] = y1
             data['x_val'] = x2
             data['y_val'] = y2
-            if self.standardizing:
-                data = self._standardize(data)
-            if data['x_val'] is None:
-                data['x_val'] = data['x_test']
-                data['y_val'] = data['y_test']
-            self._new_fold = True
-            self._last_batch = True
             yield data
 
-    def _gent_cropped_data(self, subject):
-        '''
-        Generate cropped (data, label) from dataGent.
+    def get_generator(self, x, y):
+        return self.dataGent(x, y)
 
-        Not including test data.
+    def get_dataset(self, x, y):
+        dataset = tf.data.Dataset.from_generator(
+            self.get_generator, (tf.float32, tf.int32),
+            output_shapes=(tf.TensorShape([
+                None,
+            ] + [x.shape[1], self.Samples, x.shape[3]]),
+                           tf.TensorShape([
+                               None,
+                           ] + list(y.shape[1:]))),
+            args=(x, y))
+        # dataset = dataset.repeat()
+        # print(list(dataset.as_numpy_iterator())[0][0].shape)
+        # print(len(list(dataset.as_numpy_iterator())))
+        return dataset
 
-        Parameters
-        ----------
-        ```txt
-        subject     : int, Identifier of subject.
-        ```
-        
-        Yields
-        ------
-        ```txt
-        data        : dict, Includes train, val and test data.
-        ```
-        '''
-        temp = {
-            'x_train': None,
-            'y_train': None,
-            'x_val': None,
-            'y_val': None,
-            'x_test': None,
-            'y_test': None
-        }
-        L = range(0, self.Samples + 1, self.step)
-        L = len(L)
-        print('len(L): {0:d}'.format(L))
-
-        if not self._readed:
-            # for once
-            for (self.X1, self.Y1) in self._read_data(subject=subject,
-                                                      mode='test'):
-                pass
-            for (self.X2, self.Y2) in self._read_data(subject=subject,
-                                                      mode='train'):
-                self._readed = True
-
-        temp['x_test'] = self.X1
-        temp['y_test'] = self.Y1
-        for (x1, y1), (x2, y2) in self._spilt(self.X2, self.Y2):
-            temp['x_train'] = x1
-            temp['y_train'] = y1
-            temp['x_val'] = x2
-            temp['y_val'] = y2
-            if temp['x_val'] is None:
-                if self.standardizing:
-                    data = self._standardize(temp)
-                    temp['x_val'] = data['x_test']
-                    temp['y_val'] = data['y_test']
-                    temp['x_test'] = data['x_test']
-                    temp['y_test'] = data['y_test']
-                else:
-                    data['x_train'] = x1
-                    data['x_val'] = temp['x_val']
-            else:
-                if self.standardizing:
-                    data = self._standardize(temp)
-                    temp['x_test'] = data['x_test']
-                    temp['y_test'] = data['y_test']
-                else:
-                    data['x_train'] = x1
-                    data['x_val'] = x2
-
-            i = 0
-            for (temp['x_train'], temp['x_val']) in self._cropping_data(
-                (data['x_train'], data['x_val'])):
-                i += 1
-                if i == 1:
-                    self._new_fold = True
-                if i == L:
-                    self._last_batch = True
-                yield temp
-
-    def _cropping_data(self, datas: tuple):
-        L = range(0, self.Samples + 1, self.step)
-        for i in L:
-            temp = ()
-            for data in datas:
-                temp += (data[:, :, i:i + self.winLength, :], )
-            yield temp
-
-    def _spilt(self, X, y, groups=None):
+    def _split(self, X, y, groups=None):
         """
         Generate indices to split data into training and test set.
 
@@ -894,11 +640,11 @@ class crossValidate(object):
 
         Yields
         ------
-        train : ndarray
-            The training set indices for that split.
+        train : tuple, (x, y)
+            The training set for that split.
 
-        val : ndarray
-            The validating set indices for that split.
+        val : tuple, (x, y)
+            The validating set for that split.
         """
         sm = self.splitMethod(n_splits=self.kFold,
                               shuffle=self.shuffle,
@@ -918,14 +664,76 @@ class crossValidate(object):
         Cross Validate check parameters out.
         '''
         # TODO: check parameters out.
-        pass
+        if not isinstance(self.built_fn, Callable):
+            raise TypeError('`built_fn` should be passed as a callable.')
+        if not self.built_fn.__name__.split('_')[0] == 'create':
+            raise ValueError('`built_fn` should be named as "create_*".')
+        self.random_state = check_random_state(self.random_state)
+        self.subject = None
+
+    def _check_builtfn_params(self, data=None, **kwargs):
+        '''
+        Cross Validate check `built_fn`'s parameters out.
+        '''
+        if self.modelstr in ('EEGTransformer_Learnembd',
+                             'EEGTransformer_Batchselfembd'):
+            if 'modeldir' in kwargs:
+                modeldir = kwargs['modeldir']
+                del kwargs['modeldir']
+                modelpath = walk_files(
+                    os.path.join(modeldir, '{:0>2d}'.format(self.subject)),
+                    'h5')[0]
+            elif 'modelpath' in kwargs:
+                modelpath = kwargs['modelpath']
+                del kwargs['modelpath']
+            else:
+                raise ValueError('{} should have parameter `modeldir` or '
+                                 '`modelpath` passed in.'.format(
+                                     self.modelstr))
+            model: tf.keras.Model = load_model(
+                modelpath,
+                custom_objects=get_custom_objects('EEGTransformer_Batchembd'),
+                compile=False)
+            _input = model.layers[0].input
+            _output = model.layers[-2].output
+            model = tf.keras.Model(_input, _output)
+            for layer in model.layers:
+                layer.trainable = False
+            kwargs.update({'model': model})
+            del model
+        if self.modelstr in ('EEGTransformer_Learnembd'):
+            if not isinstance(self.dataGent, EmbdGenerator):
+                raise TypeError('`{}` should use a kind of `EmbdGenerator`'
+                                ', not `{}`.'.format(
+                                    self.modelstr,
+                                    type(self.dataGent).__name__))
+            if not isinstance(data, dict):
+                raise TypeError('`EEGTransformer_Learnembd` needs `data` '
+                                'passed as a dict.')
+            _input = kwargs['model'].layers[0].input
+            _output = kwargs['model'].layers[3].output
+            model = tf.keras.Model(_input, _output)
+            embdinit = model(
+                self.dataGent(data['x_train'],
+                              data['y_train'],
+                              mode=self.dataGent.MODE_SA_EMBD)).numpy()
+            print(type(embdinit))
+            embdinit = EmbeddingInit(embdinit)
+            kwargs.update({'embdinit': embdinit})
+            del model
+        for key in kwargs:
+            if not key in self.built_fn.__code__.co_varnames:
+                raise ValueError(
+                    '`{}` is unsupported parameter in `{}`.'.format(
+                        key, self.built_fn.__name__))
+        return kwargs
 
 
 class gridSearch(crossValidate):
     '''
     Class for K-fold Cross Validation Grid Search.
 
-    Grid Search method. May better to be a subclass of `crossValidate`. 
+    Grid Search method. A subclass of `crossValidate`. 
 
     This framework can collect `model`, `loss`, `acc` and `history` from each fold, and 
     save them into files. 
@@ -933,24 +741,26 @@ class gridSearch(crossValidate):
     classes as `splitMethod`. 
 
     It can't use multiple GPUs to speed up now. To grid search on a large parameter 
-    matrix, you should use `Greedy Algorithm`.
+    matrix, you should use Greedy Algorithm.
 
     This class has implemented a magic method `__call__()` wrapping `call()`, for which
-     it can be used like a function.
+    it can be used like a Callable object.
 
     Parameters
     ----------
     ```txt
-    built_fn        : function, Create Training model which need to cross-validate.
-                      Please using string `create_` at the begining of function name, 
-                      like `create_modelname`.
+    built_fn        : Callable, Create Training model which need to cross-validate.
+                      Please using string 'create_' at the begining of function name, 
+                      like 'create_modelname'.
     parameters      : dict, Parameters need to grid-search. Keys are the parameters' 
                       name, and every parameter values are vectors which should be 
                       passed as a list.
-    dataGent        : class, Generate data for @built_fn, shapes (n_trails, ...). 
-                      It should discriminate data and label.
+    dataLoader      : ClassVar, Loader data from files. 
+                      Returns (x_train, y_trian, x_test, y_test).
+    dataGent        : ClassVar, Generate data for @built_fn, shapes (n_trails, ...). 
+                      Yields (x, y).
                       More details see core.generators.
-    splitMethod     : class, Support split methods from module sklearn.model_selection.
+    splitMethod     : ClassVar, Support split methods from module sklearn.model_selection.
     kFold           : int, Number of K-fold.
     shuffle         : bool, Optional Whether to shuffle each class's samples before 
                       splitting into batches, default = False.
@@ -963,7 +773,7 @@ class gridSearch(crossValidate):
     cropping        : bool, Switch of cropped training. Default = False.
     winLength       : int, cropping window length, default = 2*srate.
     step            : int, cropping step, default = 1.
-    standardizing   : bool, Switch of standardizing data. Default = True.
+    norm_mode       : string, None, 'maxmin` or 'z-score'. Default = 'maxmin'.
     batch_size      : int, Batch size.
     epochs          : int, Training epochs.
     patience        : int, Early stopping patience.
@@ -991,7 +801,7 @@ class gridSearch(crossValidate):
         ...
         return keras_model
 
-    class dataGenerator:
+    class dataLoader:
         def __init__(self, *a, beg=0, end=4, srate=250, **kw):
             ...
 
@@ -1003,20 +813,34 @@ class gridSearch(crossValidate):
                 ...
                 return data
         ...
+
+    class dataGenerator:
+        def __init__(self, *a, beg=0, end=4, srate=250, **kw):
+            ...
+
+        def __call__(self, x, y, mode):
+            x, y = self._process_data(x, y)
+            mode = str(mode, encoding='utf-8')
+            return self._yield_data(x, y, mode)
+        
+        def _yield_data(self, x, y, mode):
+            ...
+        ...
     ...
     parameters = {'para1':[...], 'para2':[...], ...}
-    avg_acc = gridSearch(
-                create_model, 
-                parameters,
-                dataGenerator, 
-                beg=0,
-                end=4,
-                srate=250,
-                splitMethod=StratifiedKFold,
-                kFold=10, 
-                subs=range(1, 10), 
-                *a, 
-                **kw)(*args, **kwargs)
+    avg_acc, avg_kappa = gridSearch(
+        create_model, 
+        parameters,
+        dataLoader=dataLoader,
+        dataGenerator=dataGenerator, 
+        splitMethod=StratifiedKFold,
+        beg=0,
+        end=4,
+        srate=250,
+        kFold=10, 
+        subs=range(1, 10), 
+        *a, 
+        **kw)(*args, **kwargs)
     ```
 
     Note
@@ -1024,10 +848,11 @@ class gridSearch(crossValidate):
     More details to see the codes.
     '''
     def __init__(self,
-                 built_fn,
-                 parameters: dict,
-                 dataGent,
-                 splitMethod=StratifiedKFold,
+                 built_fn: Callable[..., tf.keras.Model] = None,
+                 parameters: dict = {},
+                 dataLoader: _BaseDataloader = None,
+                 dataGent: _BaseGenerator = None,
+                 splitMethod: _BaseCrossValidator = None,
                  traindata_filepath=None,
                  testdata_filepath=None,
                  datadir=None,
@@ -1042,7 +867,8 @@ class gridSearch(crossValidate):
                  winLength=None,
                  cpt=None,
                  step=25,
-                 standardizing=True,
+                 max_crop=None,
+                 norm_mode='maxmin',
                  batch_size=10,
                  epochs=300,
                  patience=100,
@@ -1052,6 +878,7 @@ class gridSearch(crossValidate):
                  *args,
                  **kwargs):
         super().__init__(built_fn=built_fn,
+                         dataLoader=dataLoader,
                          dataGent=dataGent,
                          splitMethod=splitMethod,
                          traindata_filepath=traindata_filepath,
@@ -1068,7 +895,8 @@ class gridSearch(crossValidate):
                          winLength=winLength,
                          cpt=cpt,
                          step=step,
-                         standardizing=standardizing,
+                         max_crop=max_crop,
+                         norm_mode=norm_mode,
                          batch_size=batch_size,
                          epochs=epochs,
                          patience=patience,
@@ -1141,131 +969,101 @@ class gridSearch(crossValidate):
         if not os.path.exists(os.path.join('result', dirname)):
             os.mkdir(os.path.join('result', dirname))
 
-        if self.cropping:
-            gent = self._gent_cropped_data
-            self.Samples -= self.winLength
-        else:
-            gent = self._gent_data
-
-        earlystopping = EarlyStopping(monitor='val_loss',
-                                      min_delta=0,
-                                      patience=self.patience,
-                                      verbose=0,
-                                      mode='auto')
+        earlystopping = StatEarlyStopping(monitor='val_loss',
+                                          min_delta=0,
+                                          patience=self.patience,
+                                          verbose=0,
+                                          mode='auto',
+                                          statistic_best=True,
+                                          p=0.05)
 
         def cv(*args, **kwargs):
             '''one subject, one parameter'''
+            kwas = self._check_builtfn_params(**kwargs)
             if not self.reinit:
                 if not os.path.exists(initfile):
-                    model = self.built_fn(*args,
-                                          **kwargs,
-                                          Samples=self.Samples)
+                    model = self.built_fn(*args, **kwas, Samples=self.Samples)
                     model.save_weights(initfile)
                 else:
-                    model = self.built_fn(*args,
-                                          **kwargs,
-                                          Samples=self.Samples)
+                    model = self.built_fn(*args, **kwas, Samples=self.Samples)
                     model.load_weights(initfile)
 
             filename = ''
             for key in kwargs.keys():
                 if key in ['l1', 'l21', 'tl1']:
                     filename += '{0:s}({1:.8f})_'.format(key, kwargs[key])
-                else:
+                elif isinstance(kwargs[key], int):
                     filename += '{0:s}({1:0>2d})_'.format(key, kwargs[key])
 
+            k = 0
             acck = []
             kappak = []
-            k = 0  # count kFolds
-            # cropped training
-            t = 0  # record model's saving time
-            c = 0  # count windows
-            win = 0  # selected windows
-            win_list = []  # selected windows list
-            for data in gent(subject=self.subs):
-                if self._new_fold:  # new fold for cropped training
-                    self._new_fold = False
-                    t = 0
-                    c = 0
+            rawdata = self.get_data()
+            for data in self.get_split(rawdata):
+                k += 1
+                if self.reinit:
+                    summary = False
+                    if k == 1:
+                        summary = True
+                    kwas = self._check_builtfn_params(**kwargs, data=data)
+                    model = self.built_fn(*args,
+                                          **kwas,
+                                          Samples=self.Samples,
+                                          summary=summary)
+                else:
+                    model.load_weights(initfile)
 
-                    if self.reinit:
-                        model = self.built_fn(*args,
-                                              **kwargs,
-                                              Samples=self.Samples)
+                filepath = os.path.join(
+                    'model', dirname,
+                    filename + self.dn + '0{0:d}T_{1:s}({2:d}).h5'.format(
+                        self.subject, self.modelstr, k))
+                checkpointer = StatModelCheckpoint(filepath=filepath,
+                                                   verbose=1,
+                                                   save_best_only=True,
+                                                   statistic_best=True,
+                                                   p=0.05)
 
-                    k += 1
-                    filepath = os.path.join(
-                        'model', dirname,
-                        filename + self.dn + '0{0:d}T_{1:s}({2:d}).h5'.format(
-                            self.subs, self.modelstr, k))
-                    checkpointer = MyModelCheckpoint(filepath=filepath,
-                                                     verbose=1,
-                                                     save_best_only=True,
-                                                     statistic_best=True,
-                                                     p=0.05)
-                    history = {}
+                # train model
+                history = model.fit(
+                    x=self.get_dataset(data['x_train'], data['y_train']),
+                    epochs=self.epochs,
+                    callbacks=[checkpointer, earlystopping],
+                    verbose=self.verbose,
+                    validation_data=self.get_dataset(data['x_val'],
+                                                     data['y_val']),
+                    steps_per_epoch=get_steps(self.dataGent, data['x_train'],
+                                              data['y_train'],
+                                              self.batch_size),
+                    validation_steps=get_steps(self.dataGent, data['x_val'],
+                                               data['y_val'], self.batch_size),
+                ).history
 
-                # TODO: fit(), evaluate() with tf.data.Dataset, then `self._new_fold`
-                #       and `self._last_batch` will be DEPRECATED.
-                history = dict(
-                    list(history.items()) + list(
-                        model.fit(x=data['x_train'],
-                                  y=data['y_train'],
-                                  batch_size=self.batch_size,
-                                  epochs=self.epochs,
-                                  callbacks=[checkpointer, earlystopping],
-                                  verbose=self.verbose,
-                                  validation_data=[
-                                      data['x_val'], data['y_val']
-                                  ]).history.items()))
-
-                if self.cropping:
-                    if not t == os.path.getmtime(checkpointer._filepath):
-                        t = os.path.getmtime(checkpointer._filepath)
-                        win = c
-
-                # load the best model for cropped training or evaluating its accuracy
+                # load the best model to evaluate
                 model.load_weights(filepath)
 
-                if self._last_batch:  # the last batch for cropped training
-                    self._last_batch = False
+                # test model
+                loss, acc, kappa = model.evaluate(
+                    self.get_dataset(data['x_test'], data['y_test']),
+                    verbose=self.verbose,
+                    steps=get_steps(self.dataGent, data['x_test'],
+                                    data['y_test'], self.batch_size),
+                )
 
-                    if self.cropping:
-                        win_list.append(win)
-                        x_test = data['x_test'][:, :, win *
-                                                self.step:win * self.step +
-                                                self.Samples, :]
-                        pd = model.predict(x_test, verbose=0)
-                        pred = np.argmax(pd, axis=1)
-                        acc = np.mean(
-                            np.squeeze(pred) == np.squeeze(data['y_test']))
-                        kappa = computeKappa(pred, data['y_test'])
-                    else:
-                        loss, acc = model.evaluate(data['x_test'],
-                                                   data['y_test'],
-                                                   batch_size=self.batch_size,
-                                                   verbose=self.verbose)
-                        _pred = model.predict(data['x_test'],
-                                              batch_size=self.batch_size,
-                                              verbose=self.verbose)
-                        pred = np.argmax(_pred, axis=1)
-                        kappa = computeKappa(pred, data['y_test'])
+                # save the train history
+                npy_filepath = filepath[:-3] + '.npy'
+                np.save(npy_filepath, history)
 
-                    # save the train history
-                    npy_filepath = filepath[:-3] + '.npy'
-                    np.save(npy_filepath, history)
+                # reset model's weights to train a new one next fold
+                if os.path.exists(initfile) and not self.reinit:
+                    model.reset_states()
+                    model.load_weights(initfile)
 
-                    # reset model's weights to train a new one next fold
-                    if os.path.exists(initfile) and not self.reinit:
-                        model.reset_states()
-                        model.load_weights(initfile)
+                if self.reinit:
+                    K.clear_session()
+                    gc.collect()
 
-                    if self.reinit:
-                        K.clear_session()
-                        gc.collect()
-
-                    acck.append(acc)
-                    kappak.append(kappa)
+                acck.append(acc)
+                kappak.append(kappa)
 
             data.clear()
             del data
@@ -1276,20 +1074,17 @@ class gridSearch(crossValidate):
 
             avg_acc = np.average(np.array(acck))
             avg_kappa = np.average(np.array(kappak))
-            win = win_list[np.argmax(np.bincount(win_list))]
             filepath = os.path.join(
                 'result', dirname, filename + self.dn +
-                '0{0:d}T_{1:s}.txt'.format(self.subs, self.modelstr))
+                '0{0:d}T_{1:s}.txt'.format(self.subject, self.modelstr))
             with open(filepath, 'w+') as f:
                 sys.stdout = f
                 print(('{0:s} {1:d}-fold ' + self.validation_name +
                        ' Accuracy').format(self.modelstr, self.kFold))
-                print('Subject {0:0>2d}'.format(self.subs))
+                print('Subject {0:0>2d}'.format(self.subject))
                 for i in range(len(acck)):
                     print('Fold {0:0>2d}: {1:.2%} ({2:.4f})'.format(
                         i + 1, acck[i], kappak[i]))
-                if self.cropping:
-                    print('Window:{:0>2d}'.format(win))
                 print('Average   : {0:.2%} ({1:.4f})'.format(
                     avg_acc, avg_kappa))
                 sys.stdout = _console
@@ -1304,21 +1099,21 @@ class gridSearch(crossValidate):
         max_avg_acc = []
         max_acc_kappa = []
         indices = []
-        subs = copy.copy(self.subs)
         filepath = os.path.join(
             'result',
             'GS_{0:d}_{1:0>2d}_{2:0>2d}_{3:0>2d}_{4:0>2d}_{5:0>2d}_' \
             '{6:s}.txt'.format(tm.tm_year, tm.tm_mon, tm.tm_mday, tm.tm_hour,
                                tm.tm_min, tm.tm_sec, self.modelstr))
-        for subject in subs:
-            parameters.append(self._combination(subject=subject))
+        for self.subject in self.subs:
+            parameters.append(self._combination(subject=self.subject))
             count = 0
             with open(filepath, 'w+') as f:
                 sys.stdout = f
-                print('Subject: {0:0>2d}/{1:0>2d}'.format(subject, len(subs)))
+                print('Subject: {0:0>2d}/{1:0>2d}'.format(
+                    self.subject, len(self.subs)))
                 print(
-                    'Grid Search progress: {0:0>4d}/{1:0>4d}' \
-                    '\nThe No.{2:0>4d} is in processing'
+                    'Grid Search progress: {0:0>4d}/{1:0>4d}\n' \
+                    'The No.{2:0>4d} is in processing'
                     .format(count, len(parameters[-1]), count + 1))
                 sys.stdout = _console
                 f.seek(0, 0)
@@ -1328,7 +1123,6 @@ class gridSearch(crossValidate):
             avg_acc = []
             avg_kappa = []
             for parameter in parameters[-1]:
-                self.subs = subject
                 param = dict(parameter + list(kwargs.items()))
                 acc, kappa = cv(*args, **param)
                 avg_acc.append(acc)
@@ -1337,7 +1131,7 @@ class gridSearch(crossValidate):
                 with open(filepath, 'w+') as f:
                     sys.stdout = f
                     print('Subject: {0:0>2d}/{1:0>2d}'.format(
-                        subject, len(subs)))
+                        self.subject, len(self.subs)))
                     if count < len(parameters[-1]):
                         print(
                             'Grid Search progress: {0:0>4d}/{1:0>4d}' \
@@ -1351,11 +1145,10 @@ class gridSearch(crossValidate):
                     for line in f.readlines():
                         print(line)
                     f.close()
-            self._readed = False
+            self.dataLoader.setReaded(False)
             max_avg_acc.append(np.max(avg_acc))
             indices.append(np.argmax(avg_acc))
             max_acc_kappa.append(avg_kappa[indices[-1]])
-        self.subs = subs
         if os.path.exists(initfile) and not self.preserve_initfile:
             os.remove(initfile)
 
@@ -1418,10 +1211,11 @@ class gridSearch(crossValidate):
         return super(crossValidate, self).getConfig()
 
     def setConfig(self,
-                  built_fn,
-                  parameters: dict,
-                  dataGent,
-                  splitMethod=StratifiedKFold,
+                  built_fn: Callable[..., tf.keras.Model] = None,
+                  parameters: dict = {},
+                  dataLoader: _BaseDataloader = None,
+                  dataGent: _BaseGenerator = None,
+                  splitMethod: _BaseCrossValidator = None,
                   traindata_filepath=None,
                   testdata_filepath=None,
                   datadir=None,
@@ -1436,7 +1230,7 @@ class gridSearch(crossValidate):
                   winLength=None,
                   cpt=None,
                   step=25,
-                  standardizing=True,
+                  norm_mode='maxmin',
                   batch_size=10,
                   epochs=300,
                   patience=100,
@@ -1446,6 +1240,7 @@ class gridSearch(crossValidate):
                   *args,
                   **kwargs):
         super().setConfig(built_fn=built_fn,
+                          dataLoader=dataLoader,
                           dataGent=dataGent,
                           splitMethod=splitMethod,
                           traindata_filepath=traindata_filepath,
@@ -1462,7 +1257,7 @@ class gridSearch(crossValidate):
                           winLength=winLength,
                           cpt=cpt,
                           step=step,
-                          standardizing=standardizing,
+                          norm_mode=norm_mode,
                           batch_size=batch_size,
                           epochs=epochs,
                           patience=patience,

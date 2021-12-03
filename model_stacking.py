@@ -1,33 +1,37 @@
-from copy import Error
 import os
 import sys
 import json
 
-from joblib.logger import PrintTime
 import numpy as np
 import tensorflow as tf
 
-from io import UnsupportedOperation
+from typing import ClassVar, Callable
 from sklearn.linear_model import LinearRegression
-from test_ensemble import ensembleTest
-from core.train import create_EEGNet, create_TSGLEEGNet
-from core.generators import rawGenerator
+from model_ensemble import ensembleTest
+from core.get_model import create_EEGNet, create_TSGLEEGNet
+from core.dataloaders import RawDataloader
+from core.dataloaders import BaseDataloader as _BaseDataloader
+from core.generators import RawGenerator
+from core.generators import BaseGenerator as _BaseGenerator
 from core.splits import StratifiedKFold, AllTrain
+from core.splits import _BaseCrossValidator
 from core.regularizers import TSG
 from core.utils import computeKappa, walk_files
 
 _console = sys.stdout
 
 
-class baggingTest(ensembleTest):
+class stackingTest(ensembleTest):
     def __init__(self,
-                 built_fn,
-                 dataGent,
+                 built_fn: Callable[..., tf.keras.Model],
+                 dataLoader: _BaseDataloader,
+                 dataGent: _BaseGenerator,
+                 splitMethod: _BaseCrossValidator = StratifiedKFold,
                  cvfolderpath=None,
                  resultsavepath=None,
-                 splitMethod=StratifiedKFold,
                  traindata_filepath=None,
                  testdata_filepath=None,
+                 datadir=None,
                  beg=0.0,
                  end=4.0,
                  srate=250,
@@ -39,7 +43,7 @@ class baggingTest(ensembleTest):
                  winLength=None,
                  cpt=None,
                  step=25,
-                 standardizing=True,
+                 norm_mode='maxmin',
                  batch_size=10,
                  epochs=300,
                  patience=100,
@@ -49,12 +53,14 @@ class baggingTest(ensembleTest):
                  *args,
                  **kwargs):
         super().__init__(built_fn,
-                         dataGent,
+                         dataLoader=dataLoader,
+                         dataGent=dataGent,
                          cvfolderpath=cvfolderpath,
                          resultsavepath=resultsavepath,
                          splitMethod=splitMethod,
                          traindata_filepath=traindata_filepath,
                          testdata_filepath=testdata_filepath,
+                         datadir=datadir,
                          beg=beg,
                          end=end,
                          srate=srate,
@@ -66,7 +72,7 @@ class baggingTest(ensembleTest):
                          winLength=winLength,
                          cpt=cpt,
                          step=step,
-                         standardizing=standardizing,
+                         norm_mode=norm_mode,
                          batch_size=batch_size,
                          epochs=epochs,
                          patience=patience,
@@ -100,7 +106,8 @@ class baggingTest(ensembleTest):
         for subject in self.subs:
             pred_list = []
             for path in walk_files(
-                    os.path.join(self.basepath, '{:0>2d}'.format(subject))):
+                    os.path.join(self.basepath, '{:0>2d}'.format(subject)),
+                    'h5'):
                 if not self._readed:
                     for data['x_train'], data['y_train'] in gent(
                             subject=subject, mode='train'):
@@ -160,7 +167,7 @@ if __name__ == '__main__':
 
     params = {
         'built_fn': create_TSGLEEGNet,
-        'dataGent': rawGenerator,
+        'dataGent': RawGenerator,
         'splitMethod': AllTrain,
         'cvfolderpath': cvfolderpath,
         'datadir': os.path.join('data', 'A'),
@@ -179,5 +186,5 @@ if __name__ == '__main__':
         params['splitMethod'] = vars()[params['splitMethod']]
         params['subs'] = subs
 
-    bt = baggingTest(**params)
+    bt = stackingTest(**params)
     avgacc, avgkappa = bt()

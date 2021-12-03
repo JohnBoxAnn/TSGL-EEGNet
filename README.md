@@ -23,33 +23,72 @@ You need to do some pre-processing works before using it. Maybe you need MATLAB 
 - TSGL-EEGNet
 - DeepConvNet [[2]](https://onlinelibrary.wiley.com/doi/full/10.1002/hbm.23730)
 - ShallowConvNet [[2]](https://onlinelibrary.wiley.com/doi/full/10.1002/hbm.23730)
-- Multi-branch 3D CNN [[3]](https://ieeexplore.ieee.org/document/8820089)
+- ~~Multi-branch 3D CNN [[3]](https://ieeexplore.ieee.org/document/8820089)~~ Not supported yet.
 - [FBCSP](https://github.com/TNTLFreiburg/fbcsp)
+
+### Upgrade Log
+
+- v1.1
+  - use a new code construction to do cropped training
+  - use generator to train on a large dataset
+  - rename core.train to core.training, to be different from .train
+  - add maxmin normalization
+  - separate code test and model test
+  - fix some bugs
+- known issues
+  - cv testing and model ensemble (stacking) are not adapted
+- next
+  - use generator to load a large dataset
 
 ## Usage
 
 ### Requirement
 
-- Python >= 3.6
-- tensorflow-gpu == 2.1.0
+- Python >= 3.6 && <= 3.8
+- Python >= 3.7 (when your GPU is newer than Nvidia 30xx)
+- tensorflow-gpu >= 2.0.0 && <= 2.3.0
+- tensorflow >= 2.4.1 (pip) (when your GPU is newer than Nvidia 30xx)
 - scikit-learn >= 0.21.3
 - scipy >= 1.3.1
 - numpy >= 1.17.3
-- pydot >= 1.4.1
+- tensorflow-addons (pip)
 - hdf5 >= 1.10.4
 - h5py >= 2.9.0
-- matplotlib >= 3.1.1
-- graphviz >= 2.38
-- mne >= 0.20.7 (pip)
+- matplotlib >= 3.1.1 && <=3.3.4 (optional)
+- pydot >= 1.4.1 (optional)
+- graphviz >= 2.38 (optional)
+- mne >= 0.20.7 (pip) (optional)
+- braindecode == 0.2.0 (pip) (fbcsp) (optional)
 
 It is recommended to use conda environment.
+tensorflow-addons [Requirement](https://github.com/tensorflow/addons#python-op-compatibility-matrix)
+Optional packages are for visualization
 
-### Coding
+### Quick Start
 
-```python
-import TSGLEEGNet as tsgleeg
-# TODO: finish the doc
+```shell
+# training models
+python train.py
+
+# testing single model
+python model_test.py
+
+# testing CV models (not adapted)
+# python model_cv.py
+
+# ensemble models (not adapted)
+# python model_ensemble.py
+
+# stacking models (not adapted)
+# python model_stacking.py
+
+# visualization
+python vis.py
 ```
+
+### Code Structure
+
+TODO
 
 # Paper Citation
 
@@ -57,7 +96,7 @@ If you use the EEGNet model in your research and found it helpful, please cite t
 
     @article{Lawhern2018,
         author={Vernon J Lawhern and Amelia J Solon and Nicholas R Waytowich and Stephen M Gordon and Chou P Hung and Brent J Lance},
-        title={EEGNet: a compact convolutional neural network for EEG-based brain–computer interfaces},
+        title={EEGNet: a Compact Convolutional Neural Network for EEG-based Brain–computer Interfaces},
         journal={Journal of Neural Engineering},
         volume={15},
         number={5},

@@ -4,25 +4,32 @@ import json
 import numpy as np
 import tensorflow as tf
 
-from core.train import crossValidate as _crossValidate
-from core.train import create_EEGNet, create_TSGLEEGNet
-from core.generators import rawGenerator
+from typing import ClassVar, Callable
+from core.training import crossValidate as _crossValidate
+from core.get_model import create_EEGNet, create_TSGLEEGNet
+from core.dataloaders import RawDataloader
+from core.dataloaders import BaseDataloader as _BaseDataloader
+from core.generators import RawGenerator
+from core.generators import BaseGenerator as _BaseGenerator
 from core.splits import StratifiedKFold, AllTrain
+from core.splits import _BaseCrossValidator
 from core.regularizers import TSG
 from core.utils import computeKappa, walk_files
 
 _console = sys.stdout
 
 
-class crossValidateTest(_crossValidate):
+class ensembleTest(_crossValidate):
     def __init__(self,
-                 built_fn,
-                 dataGent,
+                 built_fn: Callable[..., tf.keras.Model],
+                 dataLoader: _BaseDataloader,
+                 dataGent: _BaseGenerator,
+                 splitMethod: _BaseCrossValidator = StratifiedKFold,
                  cvfolderpath=None,
                  resultsavepath=None,
-                 splitMethod=StratifiedKFold,
                  traindata_filepath=None,
                  testdata_filepath=None,
+                 datadir=None,
                  beg=0.0,
                  end=4.0,
                  srate=250,
@@ -34,7 +41,7 @@ class crossValidateTest(_crossValidate):
                  winLength=None,
                  cpt=None,
                  step=25,
-                 standardizing=True,
+                 norm_mode='maxmin',
                  batch_size=10,
                  epochs=300,
                  patience=100,
@@ -44,10 +51,12 @@ class crossValidateTest(_crossValidate):
                  *args,
                  **kwargs):
         super().__init__(built_fn,
-                         dataGent,
+                         dataLoader=dataLoader,
+                         dataGent=dataGent,
                          splitMethod=splitMethod,
                          traindata_filepath=traindata_filepath,
                          testdata_filepath=testdata_filepath,
+                         datadir=datadir,
                          beg=beg,
                          end=end,
                          srate=srate,
@@ -59,7 +68,7 @@ class crossValidateTest(_crossValidate):
                          winLength=winLength,
                          cpt=cpt,
                          step=step,
-                         standardizing=standardizing,
+                         norm_mode=norm_mode,
                          batch_size=batch_size,
                          epochs=epochs,
                          patience=patience,
@@ -72,7 +81,27 @@ class crossValidateTest(_crossValidate):
         self.basepath = cvfolderpath
         self.resavepath = resultsavepath
         if not self.resavepath:
-            self.resavepath = os.path.join('result', 'cvTest.txt')
+            self.resavepath = os.path.join('result', 'ensembleTest.txt')
+        self.weight_list = []
+        self.ename = 'vote'
+        self.weightLearner()
+
+    def weightLearner(self):
+        for _ in range(max(self.subs)):
+            self.weight_list.append([])
+        for sub in self.subs:
+            for _ in range(self.kFold):
+                self.weight_list[sub - 1].append(1 / self.kFold)
+
+    @staticmethod
+    def ensemble(pred_list: list, weight_list: list):
+        pred = np.zeros((len(pred_list[0]), 4))
+        for week_pred, weight in zip(pred_list, weight_list):
+            i = 0
+            for p in week_pred:
+                pred[i, int(p)] += weight * 1
+                i += 1
+        return np.argmax(pred, axis=1)
 
     def call(self, *args, **kwargs):
         gent = self._read_data
@@ -84,14 +113,14 @@ class crossValidateTest(_crossValidate):
         else:
             _co = {}
 
-        avg_acc_list = []
-        avg_kappa_list = []
+        acc_list = []
+        kappa_list = []
         data = {'x_test': None, 'y_test': None}
         for subject in self.subs:
-            acc_list = []
-            kappa_list = []
+            pred_list = []
             for path in walk_files(
-                    os.path.join(self.basepath, '{:0>2d}'.format(subject))):
+                    os.path.join(self.basepath, '{:0>2d}'.format(subject)),
+                    'h5'):
                 if not self._readed:
                     for data['x_test'], data['y_test'] in gent(subject=subject,
                                                                mode='test'):
@@ -117,40 +146,34 @@ class crossValidateTest(_crossValidate):
                     acc = np.mean(np.array(Pred))
                     kappa = 0.  # None
                 else:
-                    loss, acc = model.evaluate(data['x_test'],
-                                               data['y_test'],
-                                               batch_size=self.batch_size,
-                                               verbose=self.verbose)
                     _pred = model.predict(data['x_test'],
                                           batch_size=self.batch_size,
                                           verbose=self.verbose)
-                    pred = np.argmax(_pred, axis=1)
-                    kappa = computeKappa(pred, data['y_test'])
-
-                acc_list.append(acc)
-                kappa_list.append(kappa)
-            avg_acc_list.append(np.mean(acc_list))
-            avg_kappa_list.append(np.mean(kappa_list))
+                    pred_list.append(np.squeeze(np.argmax(_pred, axis=1)))
+            pred = self.ensemble(pred_list, self.weight_list[subject - 1])
+            acc_list.append(np.mean(pred == np.squeeze(data['y_test'])))
+            kappa_list.append(computeKappa(pred, data['y_test']))
             self._readed = False
-        avg_acc = np.mean(avg_acc_list)
-        avg_kappa = np.mean(avg_kappa_list)
+        avg_acc = np.mean(acc_list)
+        avg_kappa = np.mean(kappa_list)
 
         with open(self.resavepath, 'w+') as f:
             sys.stdout = f
-            print(('{0:s} {1:d}-fold ' + self.validation_name +
-                   ' Accuracy (kappa)').format(self.modelstr, self.kFold))
+            print(('{0:s} {1:d}-fold Ensemble({2:s}) ' + self.validation_name +
+                   ' Accuracy (kappa)').format(self.modelstr, self.kFold,
+                                               self.ename))
             for i in range(len(self.subs)):
                 print('Subject {0:0>2d}: {1:.2%} ({2:.4f})'.format(
-                    self.subs[i], avg_acc_list[i], avg_kappa_list[i]))
+                    self.subs[i], acc_list[i], kappa_list[i]))
             print('Average   : {0:.2%} ({1:.4f})'.format(avg_acc, avg_kappa))
             sys.stdout = _console
             f.seek(0, 0)
             for line in f.readlines():
                 print(line)
             f.close()
-        avg_acc_list.append(avg_acc)
-        avg_kappa_list.append(avg_kappa)
-        return avg_acc_list, avg_kappa_list
+        acc_list.append(avg_acc)
+        kappa_list.append(avg_kappa)
+        return acc_list, kappa_list
 
     def getConfig(self):
         config = {'cvfolderpath': self.basepath, 'resavepath': self.resavepath}
@@ -176,18 +199,19 @@ if __name__ == '__main__':
         if len(subs) == 1:
             subs = [i for i in range(1, subs[0] + 1)]
     for i in subs:
-        if not os.path.exists(os.path.join(cvfolderpath, ''.format())):
+        if not os.path.exists(os.path.join(cvfolderpath, '{:0>2d}'.format(i))):
             raise ValueError('subject don\'t exists.')
 
     params = {
         'built_fn': create_TSGLEEGNet,
-        'dataGent': rawGenerator,
+        'dataGent': RawGenerator,
         'splitMethod': AllTrain,
         'cvfolderpath': cvfolderpath,
-        'datadir': os.path.join('data', 'A'),
+        'datadir': os.path.join('data', 'C'),
         'kFold': 5,
         'subs': subs,
-        'cropping': False
+        'cropping': False,
+        'standardizing': True
     }
 
     jsonPath = os.path.join(cvfolderpath, 'params.json')
@@ -199,5 +223,5 @@ if __name__ == '__main__':
         params['splitMethod'] = vars()[params['splitMethod']]
         params['subs'] = subs
 
-    cvt = crossValidateTest(**params)
-    avgacc, avgkappa = cvt()
+    et = ensembleTest(**params)
+    avgacc, avgkappa = et()
